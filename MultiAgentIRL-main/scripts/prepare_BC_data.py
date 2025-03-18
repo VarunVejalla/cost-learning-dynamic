@@ -1,9 +1,11 @@
+import os
 import h5py
 import numpy as np
 import pickle
 
 # JLD2 file path
-file_path = "/home/rchandra/Research/MultiAgentIRL/data/data_bc.jld2"
+dirname = os.path.dirname(__file__)
+file_path = os.path.join(dirname, "../data/data_bc.jld2")
 
 # Open the JLD2 file in read mode
 file = h5py.File(file_path, "r")
