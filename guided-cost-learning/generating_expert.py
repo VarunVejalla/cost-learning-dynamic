@@ -15,9 +15,9 @@ torch.manual_seed(seed)
 
 env_name = 'CartPole-v1'
 env = gym.make(env_name).unwrapped
-if seed is not None:
-    env.seed(seed)
-state = env.reset()
+# if seed is not None:
+state, _ = env.reset(seed)
+# state, _ = env.reset()
 
 n_actions = env.action_space.n
 state_shape = env.observation_space.shape

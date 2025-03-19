@@ -28,14 +28,14 @@ class PG(nn.Module):
         # print(states, logits, probs)
         return probs
     
-    def generate_session(self, env, t_max=1000):
+    def generate_session(self, env, t_max=1000, seed=18095048):
         states, traj_probs, actions, rewards = [], [], [], []
-        s = env.reset()
+        s, _ = env.reset(seed=seed)
         q_t = 1.0
         for t in range(t_max):
             action_probs = self.predict_probs(np.array([s]))[0]
             a = np.random.choice(self.n_actions,  p = action_probs)
-            new_s, r, done, info = env.step(a)
+            new_s, r, terminated, truncated, info = env.step(a)
             
             q_t *= action_probs[a]
 
@@ -45,7 +45,7 @@ class PG(nn.Module):
             rewards.append(r)
 
             s = new_s
-            if done:
+            if terminated or truncated:
                 break
 
         return states, actions, rewards

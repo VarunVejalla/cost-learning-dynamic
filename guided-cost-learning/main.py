@@ -20,11 +20,12 @@ torch.manual_seed(seed)
 # ENV SETUP
 env_name = 'CartPole-v0'
 env = gym.make(env_name).unwrapped
-if seed is not None:
-    env.seed(seed)
 n_actions = env.action_space.n
 state_shape = env.observation_space.shape
-state = env.reset()
+if seed is not None:
+    env.reset(seed=seed)
+else:
+    state = env.reset()
 
 # LOADING EXPERT/DEMO SAMPLES
 demo_trajs = np.load('expert_samples/pg_cartpole.npy', allow_pickle=True)
