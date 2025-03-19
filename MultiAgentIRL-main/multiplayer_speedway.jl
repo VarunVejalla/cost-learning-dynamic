@@ -40,7 +40,7 @@ function ma_irl(;sync_update=true,
                 scale=true,
                 eta=0.0001,
                 plot=true,
-                max_itr=5000,
+                max_itr=1000,
                 sample_size=100,
                 dem_num=200)
 
@@ -170,6 +170,7 @@ function ma_irl(;sync_update=true,
         avg_pro_feature_counts = zeros(feature_k)
         lr = rate(eta, itr)
 
+        println("sync_update: ", sync_update)
         if sync_update
             curr_game = define_game(state_dims, ctrl_dims, DT, theta_curr)
             results, x_trajectories_data, u_trajectories_data = generate_simulations(sim_param=sim_param,
@@ -269,7 +270,9 @@ function ma_irl(;sync_update=true,
         println("            this is avg dem feature counts ", avg_dem_feature_counts)
         println("            this is avg proposed feature counts ", avg_pro_feature_counts)
         println("            this is our current theta estimation ", theta_curr, " and averaged over time ", theta_avg)
+        println("plot: ", plot)
         if plot
+            println("feature_k: ", feature_k)
             for i = 1:feature_k
                 axs_theta[i].clear()
                 axs_theta[i].plot(theta_est[1:itr+1, i])
@@ -289,7 +292,7 @@ function ma_irl(;sync_update=true,
         fname = string("data/", current_time, ".jld2")
         # @save fname data
     end
-    gname = string("/home/rchandra/Research/bluecity_example/data/learned_x_trajectories_rld", ".jld2")
+    gname = string("/home/cavalier/research/bluecity_example/data/learned_x_trajectories_rld", ".jld2")
     @save gname x_trajectories
 end
 
@@ -303,9 +306,11 @@ ma_irl(sync_update=false,     # if true, update param for both players at the sa
        single_update=5,       # if sync_update = false, then update each player single_update times before updating the other player
        # single_update=1,
        scale=true,            # normalize features
-       eta=0.01,              # parameter for learning rate, starting value
-       max_itr=100,          # maximum iteration
+       eta=0.03,              # parameter for learning rate, starting value
+       # eta=0.01,              # parameter for learning rate, starting value
+       max_itr=15,          # maximum iteration
+       # max_itr=100,          # maximum iteration
        sample_size = 10,      # number of samples in each update to approximate feature counts
        # sample_size=2,
        dem_num=10,
-       plot=false)
+       plot=true)

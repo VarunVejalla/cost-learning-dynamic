@@ -3,4 +3,5 @@ venv/
 *.swp
 .ipynb_checkpoints/
 MultiAgentIRL-main/plots/.ipynb_checkpoints/
+*.jld2
 
