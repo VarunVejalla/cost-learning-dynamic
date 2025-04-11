@@ -92,7 +92,8 @@ function ma_irl(;sync_update=true,
     x_refs_bc = x_ref
     @save fname_bc x_trajectories x_refs_bc
     println(" Saved BC data")
-    fname = string("/home/rchandra/Research/bluecity_trajectories/data/GT", ".jld2")
+    datapath = expanduser("~/Research/bluecity_trajectories/data/")
+    fname = string(datapath, "GT", ".jld2")
     @save fname x_trajectories
     println(" Saved GT data")
     if plot
@@ -218,7 +219,8 @@ function ma_irl(;sync_update=true,
                 theta_curr = max.(0.0, theta_curr)
             end
         end
-        hname = string("/home/rchandra/Research/bluecity_trajectories/data/Learned", ".jld2")
+        datapath = expanduser("~/Research/bluecity_trajectories/data/")
+        hname = string(datapath, "Learned", ".jld2")
         @save hname x_trajectories
         println(" Saved Learned data")
         feature_counts[itr,:] = avg_pro_feature_counts

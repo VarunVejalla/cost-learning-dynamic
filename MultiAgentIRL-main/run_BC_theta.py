@@ -308,7 +308,10 @@ if __name__ == "__main__":
     # Plot the second trajectory
         plt.plot(tr_2_x, tr_2_y, label='Reference')
         BC_learned[agent] = [tr_1_x, tr_1_y]
-    with open("/home/rchandra/Research/bluecity_example/data/learned_BC_speedway.pkl", "wb") as file:
+
+    datapath = os.path.expanduser("~/Research/bluecity_example/data/")
+    fname = os.path.join(datapath, "learned_BC_speedway.pkl")
+    with open(fname, "wb") as file:
         pickle.dump(BC_learned, file)
 
 

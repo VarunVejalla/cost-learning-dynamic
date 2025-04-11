@@ -253,7 +253,8 @@ function ma_irl(;sync_update=true,
 
         fname = string("data/", current_time, ".jld2")
         # @save fname data
-        gname = string("/home/rchandra/Research/bluecity_example/data/learned_x_trajectories_rld_simple", ".jld2")
+        datapath = expanduser("~/Research/bluecity_example/data/")
+        gname = string(datapath, "learned_x_trajectories_rld_simple", ".jld2")
         @save gname x_trajectories
     end
 end
