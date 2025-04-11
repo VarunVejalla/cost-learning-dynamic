@@ -166,14 +166,19 @@ function get_feature_counts(x_trajectories, u_trajectories)
         xtraj = x_trajectories[i]  # State trajectory
         utraj = u_trajectories[i]  # Control trajectory
         for t = 1:plan_steps
-            # Quadratic features for agent 1
-            feature_counts[1] += xtraj[t, :]' * xtraj[t, :]  # State cost
-            feature_counts[2] += utraj[t, 1:ctrl_dim_1]' * utraj[t, 1:ctrl_dim_1]  # Control cost
-            feature_counts[3] += utraj[t, ctrl_dim_1+1:end]' * utraj[t, ctrl_dim_1+1:end]  # Control cost
-            # Quadratic features for agent 2 (mirrored)
-            feature_counts[4] += xtraj[t, :]' * xtraj[t, :]
-            feature_counts[5] += utraj[t, 1:ctrl_dim_1]' * utraj[t, 1:ctrl_dim_1]
-            feature_counts[6] += utraj[t, ctrl_dim_1+1:end]' * utraj[t, ctrl_dim_1+1:end]
+            # Feature 1: Agent 1 state cost (sum of squared states)
+            feature_counts[1] += xtraj[t,:]' * xtraj[t,:]
+            # Feature 2: Agent 1 control cost (u1 squared)
+            feature_counts[2] += utraj[t,1:ctrl_dim_1]' * utraj[t,1:ctrl_dim_1]
+            # Feature 3: Agent 1 control cost (u2 squared)
+            feature_counts[3] += utraj[t,ctrl_dim_1+1:end]' * utraj[t,ctrl_dim_1+1:end]
+
+            # Feature 4: Agent 2 state cost (sum of squared states)
+            feature_counts[4] += xtraj[t,:]' * xtraj[t,:]
+            # Feature 5: Agent 2 control cost (u1 squared)
+            feature_counts[5] += utraj[t,1:ctrl_dim_1]' * utraj[t,1:ctrl_dim_1]
+            # Feature 6: Agent 2 control cost (u2 squared)
+            feature_counts[6] += utraj[t,ctrl_dim_1+1:end]' * utraj[t,ctrl_dim_1+1:end]
         end
         # Include terminal state
         feature_counts[1] += xtraj[end, :]' * xtraj[end, :]
@@ -240,6 +245,12 @@ function ma_irl()
     theta4 = [theta_curr[4]]
     theta5 = [theta_curr[5]]
     theta6 = [theta_curr[6]]
+    # theta[1] weights Feature 1 (w_state1).
+    # theta[2] weights Feature 2 (w_ctrl11).
+    # theta[3] weights Feature 3 (w_ctrl12).
+    # theta[4] weights Feature 4 (w_state2).
+    # theta[5] weights Feature 5 (w_ctrl21).
+    # theta[6] weights Feature 6 (w_ctrl22).
 
     fc1, fc2, fc3, fc4, fc5, fc6 = [], [], [], [], [], []  # Feature count histories
 

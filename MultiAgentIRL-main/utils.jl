@@ -230,31 +230,36 @@ function get_feature_counts_three(game, x_trajectories, u_trajectories, x_ref, f
         utraj = u_trajectories[i]
         steps = size(utraj)[1]
         for t = 1:steps+1
-            state1 = xtraj[t,1:state_dim1]
-            state2 = xtraj[t,1+state_dim1:state_dim1+state_dim2]
-            state3 = xtraj[t,1+state_dim1+state_dim2:end]
-            ref1 = x_ref[t,1:state_dim1]
-            ref2 = x_ref[t,1+state_dim1:state_dim1+state_dim2]
-            ref3 = x_ref[t,1+state_dim1+state_dim2:end]
+            # Extract states for each agent
+            state1 = xtraj[t, 1:state_dim1]               # Agent 1
+            state2 = xtraj[t, 1+state_dim1:state_dim1+state_dim2]  # Agent 2
+            state3 = xtraj[t, 1+state_dim1+state_dim2:end]  # Agent 3
+            # Extract reference states
+            ref1 = x_ref[t, 1:state_dim1]
+            ref2 = x_ref[t, 1+state_dim1:state_dim1+state_dim2]
+            ref3 = x_ref[t, 1+state_dim1+state_dim2:end]
+            # Extract controls (if not final step)
             if t <= steps
-                control1 = utraj[t,1:ctrl_dim1]
-                control2 = utraj[t,1+ctrl_dim1:ctrl_dim1+ctrl_dim2]
-                control3 = utraj[t,1+ctrl_dim1+ctrl_dim2:end]
+                control1 = utraj[t, 1:ctrl_dim1]
+                control2 = utraj[t, 1+ctrl_dim1:ctrl_dim1+ctrl_dim2]
+                control3 = utraj[t, 1+ctrl_dim1+ctrl_dim2:end]
             end
+            # Compute pairwise distances minus radii
             dist12 = sqrt((state1[1] - state2[1])^2 + (state1[2] - state2[2])^2) - (2 * radius)
             dist13 = sqrt((state1[1] - state3[1])^2 + (state1[2] - state3[2])^2) - (2 * radius)
             dist23 = sqrt((state2[1] - state3[1])^2 + (state2[2] - state3[2])^2) - (2 * radius)
 
-            feature_counts[1] += (state1 - ref1)' * (state1 - ref1)
-            feature_counts[3] += 1.0/((0.2*dist12 + 1)^10) + 1.0/((0.2*dist13 + 1)^10)
-            feature_counts[4] += (state2 - ref2)' * (state2 - ref2)
-            feature_counts[6] += 1.0/((0.2*dist12 + 1)^10) + 1.0/((0.2*dist23 + 1)^10)
-            feature_counts[7] += (state3 - ref3)' * (state3 - ref3)
-            feature_counts[9] += 1.0/((0.2*dist13 + 1)^10) + 1.0/((0.2*dist23 + 1)^10)
+            # Manually defined features
+            feature_counts[1] += (state1 - ref1)' * (state1 - ref1)  # Agent 1: Tracking error
+            feature_counts[3] += 1.0/((0.2*dist12 + 1)^10) + 1.0/((0.2*dist13 + 1)^10)  # Agent 1: Safety
+            feature_counts[4] += (state2 - ref2)' * (state2 - ref2)  # Agent 2: Tracking error
+            feature_counts[6] += 1.0/((0.2*dist12 + 1)^10) + 1.0/((0.2*dist23 + 1)^10)  # Agent 2: Safety
+            feature_counts[7] += (state3 - ref3)' * (state3 - ref3)  # Agent 3: Tracking error
+            feature_counts[9] += 1.0/((0.2*dist13 + 1)^10) + 1.0/((0.2*dist23 + 1)^10)  # Agent 3: Safety
             if t <= steps
-                feature_counts[2] += control1' * control1
-                feature_counts[5] += control2' * control2
-                feature_counts[8] += control3' * control3
+                feature_counts[2] += control1' * control1  # Agent 1: Control effort
+                feature_counts[5] += control2' * control2  # Agent 2: Control effort
+                feature_counts[8] += control3' * control3  # Agent 3: Control effort 
             end
         end
     end
@@ -277,23 +282,24 @@ function get_feature_counts(game, x_trajectories, u_trajectories, x_ref, feature
         utraj = u_trajectories[i]
         steps = size(utraj)[1]
         for t = 1:steps+1
-            state1 = xtraj[t,1:state_dim1]
-            state2 = xtraj[t,1+state_dim1:end]
-            ref1 = x_ref[t,1:state_dim1]
-            ref2 = x_ref[t,1+state_dim1:end]
+            state1 = xtraj[t, 1:state_dim1]
+            state2 = xtraj[t, 1+state_dim1:end]
+            ref1 = x_ref[t, 1:state_dim1]
+            ref2 = x_ref[t, 1+state_dim1:end]
             if t <= steps
-                control1 = utraj[t,1:ctrl_dim1]
-                control2 = utraj[t,1+ctrl_dim1:end]
+                control1 = utraj[t, 1:ctrl_dim1]
+                control2 = utraj[t, 1+ctrl_dim1:end]
             end
             dist = sqrt((state1[1] - state2[1])^2 + (state1[2] - state2[2])^2) - (2 * radius)
 
-            feature_counts[1, i] += (state1 - ref1)' * (state1 - ref1)
-            feature_counts[3, i] += 1.0/((0.2*dist + 1)^10)
-            feature_counts[4, i] += (state2 - ref2)' * (state2 - ref2)
-            feature_counts[6, i] += 1.0/((0.2*dist + 1)^10)
+            # Manually defined features
+            feature_counts[1, i] += (state1 - ref1)' * (state1 - ref1)  # Agent 1: Tracking error
+            feature_counts[3, i] += 1.0/((0.2*dist + 1)^10)             # Agent 1: Safety
+            feature_counts[4, i] += (state2 - ref2)' * (state2 - ref2)  # Agent 2: Tracking error
+            feature_counts[6, i] += 1.0/((0.2*dist + 1)^10)             # Agent 2: Safety
             if t <= steps
-                feature_counts[2, i] += control1' * control1
-                feature_counts[5, i] += control2' * control2
+                feature_counts[2, i] += control1' * control1            # Agent 1: Control effort
+                feature_counts[5, i] += control2' * control2            # Agent 2: Control effort
             end
         end
     end
