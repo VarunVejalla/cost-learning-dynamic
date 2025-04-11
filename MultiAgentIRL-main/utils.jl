@@ -10,6 +10,7 @@ struct NonlinearGame
     ctrl_dims::Vector{Int}
     DT::Float64
     radius::Float64
+    num_agents::Int  # Added for convenience
 end
 
 py"""
@@ -17,28 +18,25 @@ import torch
 import torch.nn as nn
 
 class CostNetwork(nn.Module):
-    def __init__(self, state_dim, ctrl_dim, num_agents, embedding_dim):
+    def __init__(self, state_dim_per_agent, ctrl_dim_per_agent, embedding_dim):
         super(CostNetwork, self).__init__()
-        self.input_dim = state_dim + ctrl_dim  # St + all ui,t
-        self.num_agents = num_agents
-        self.embedding_dim = embedding_dim
+        self.input_dim = state_dim_per_agent + ctrl_dim_per_agent  # si + ui
         self.layers = nn.Sequential(
             nn.Linear(self.input_dim, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Linear(64, self.embedding_dim * num_agents)  # wi for each agent
+            nn.Linear(64, embedding_dim)  # wi for one agent
         )
     
-    def forward(self, state, controls):
-        x = torch.cat((state, controls), dim=-1)
-        w = self.layers(x)  # Output: [w1, w2, w3]
-        return w.view(self.num_agents, self.embedding_dim)
+    def forward(self, state_i, control_i):
+        x = torch.cat((state_i, control_i), dim=-1)
+        return self.layers(x)
 
 class PolicyNetwork(nn.Module):
-    def __init__(self, state_dim, embedding_dim, ctrl_dim_per_agent):
+    def __init__(self, state_dim_per_agent, embedding_dim, ctrl_dim_per_agent):
         super(PolicyNetwork, self).__init__()
-        self.input_dim = state_dim + embedding_dim  # St + wi
+        self.input_dim = state_dim_per_agent + embedding_dim  # si + wi
         self.output_dim = ctrl_dim_per_agent
         self.layers = nn.Sequential(
             nn.Linear(self.input_dim, 64),
@@ -48,15 +46,15 @@ class PolicyNetwork(nn.Module):
             nn.Linear(32, self.output_dim)
         )
     
-    def forward(self, state, w_i):
-        x = torch.cat((state, w_i), dim=-1)
+    def forward(self, state_i, w_i):
+        x = torch.cat((state_i, w_i), dim=-1)
         return self.layers(x)
 
 class DynamicsNetwork(nn.Module):
-    def __init__(self, embedding_dim, ctrl_dim, state_dim):
+    def __init__(self, embedding_dim, ctrl_dim_per_agent, state_dim_per_agent):
         super(DynamicsNetwork, self).__init__()
-        self.input_dim = embedding_dim + ctrl_dim  # wi + ui,t
-        self.output_dim = state_dim // 3  # Per-agent state (e.g., 4D)
+        self.input_dim = embedding_dim + ctrl_dim_per_agent  # wi + ui
+        self.output_dim = state_dim_per_agent
         self.layers = nn.Sequential(
             nn.Linear(self.input_dim, 64),
             nn.ReLU(),
@@ -89,25 +87,6 @@ function SimulationParams(;steps = 60,
                            horizon = 6.0,
                            plan_steps = 10)
     return SimulationParams(steps, horizon, plan_steps)
-end
-
-
-#=======================
-define a nonlinear game
-========================#
-struct NonlinearGame
-    # dynamics and cost function
-    # dt::Float64
-    dynamics_func::Function
-    cost_funcs :: Array{Function}
-
-    #
-    state_dims :: Array{Int}
-    state_dim :: Int     # total dimension of states
-    ctrl_dims :: Array{Int}
-    ctrl_dim :: Int
-
-    radius :: Float64
 end
 
 
@@ -294,13 +273,13 @@ function define_game(state_dims, ctrl_dims, DT, theta)
 end
 
 function get_feature_counts_three(game, x_trajectories, u_trajectories, x_ref, feature_k)
-    println("get_feature_counts_three")
-    println("x_trajectories: ", x_trajectories)
-    println("size(x_trajectories): ", size(x_trajectories))
-    println("u_trajectories: ", u_trajectories)
-    println("size(u_trajectories): ", size(u_trajectories))
-    println("x_ref: ", x_ref)
-    println("feature_k: ", feature_k)
+    # println("get_feature_counts_three")
+    # println("x_trajectories: ", x_trajectories)
+    # println("size(x_trajectories): ", size(x_trajectories))
+    # println("u_trajectories: ", u_trajectories)
+    # println("size(u_trajectories): ", size(u_trajectories))
+    # println("x_ref: ", x_ref)
+    # println("feature_k: ", feature_k)
     feature_counts = zeros(feature_k)
     num = length(x_trajectories)
     state_dim1 = game.state_dims[1]
@@ -396,19 +375,26 @@ function define_game(state_dims, ctrl_dims, DT, theta)
     state_dim = sum(state_dims)
     ctrl_dim = sum(ctrl_dims)
     radius = 0.5
-    return NonlinearGame(state_dim, ctrl_dim, state_dims, ctrl_dims, DT, radius)
+    num_agents = length(state_dims)
+    return NonlinearGame(state_dim, ctrl_dim, state_dims, ctrl_dims, DT, radius, num_agents)
 end
 
-# Compute costs and policies
 function compute_costs_and_policies(game, state, controls, cost_network, policy_networks)
     state_torch = torch.tensor(state, dtype=torch.float32)
     controls_torch = torch.tensor(controls, dtype=torch.float32)
-    w = cost_network(state_torch, controls_torch)  # [num_agents, embedding_dim]
+    w = Vector{Any}(undef, game.num_agents)
     u_pred = zeros(game.ctrl_dim)
     costs = zeros(game.num_agents)
     for i = 1:game.num_agents
-        u_pred[(i-1)*game.ctrl_dims[i]+1:i*game.ctrl_dims[i]] = policy_networks[i](state_torch, w[i]).detach().numpy()
-        costs[i] = torch.sum(w[i] * w[i])  # Example cost: ||wi||^2
+        state_idx_start = sum(game.state_dims[1:i-1]) + 1
+        state_idx_end = sum(game.state_dims[1:i])
+        ctrl_idx_start = sum(game.ctrl_dims[1:i-1]) + 1
+        ctrl_idx_end = sum(game.ctrl_dims[1:i])
+        si = state_torch[state_idx_start:state_idx_end]
+        ui = controls_torch[ctrl_idx_start:ctrl_idx_end]
+        w[i] = cost_network(si, ui)
+        u_pred[ctrl_idx_start:ctrl_idx_end] = policy_networks[i](si, w[i]).detach().numpy()
+        costs[i] = torch.sum(w[i] * w[i])  # Cost depends only on private wi
     end
     return w, u_pred, costs
 end
@@ -426,7 +412,6 @@ function dynamics_nn(game, state, controls, w, dynamics_networks)
     return next_state
 end
 
-# Generate simulations with NN policy
 function generate_simulations_nn(sim_param, nl_game, x_init, traj_ref, num_sim, cost_network, policy_networks, dynamics_networks)
     steps = sim_param.steps
     state_dim = nl_game.state_dim
@@ -434,13 +419,13 @@ function generate_simulations_nn(sim_param, nl_game, x_init, traj_ref, num_sim, 
     x_trajectories = []
     u_trajectories = []
 
-    for _ in 1:num_sim
+    for _ = 1:num_sim
         x_traj = zeros(steps + 1, state_dim)
         u_traj = zeros(steps, ctrl_dim)
         x_traj[1, :] = x_init
         
         for t = 1:steps
-            w, u_pred, _ = compute_costs_and_policies(nl_game, x_traj[t, :], u_traj[max(1, t-1), :], cost_network, policy_networks)
+            w, u_pred, _ = compute_costs_and_policies(nl_game, x_traj[t, :], u_traj[t, :], cost_network, policy_networks)
             u_traj[t, :] = u_pred
             x_traj[t + 1, :] = dynamics_nn(nl_game, x_traj[t, :], u_traj[t, :], w, dynamics_networks)
         end

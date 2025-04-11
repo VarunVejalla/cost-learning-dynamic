@@ -1,4 +1,4 @@
-# file:     multiplayer.jl
+# file:     simple_speedway.jl
 # author:   mingyuw@stanford.edu
 
 # Nonlinear game with 3 players
@@ -15,8 +15,8 @@ using PyCall
 using Pickle
 
 # Include external utility files
-include("lqgame.jl")  # Assumed to contain game-solving functions (e.g., lqgame_QRE)
-include("utils.jl")   # Assumed to contain helper functions (e.g., generate_simulations)
+include("lqgame.jl")  # Contains game-solving functions (e.g., lqgame_QRE)
+include("utils.jl")   # Contains helper functions (e.g., generate_simulations_nn)
 
 # Define Python function to load pickle files via PyCall
 py"""
@@ -35,190 +35,152 @@ function rate(lr0, itr)
 end
 
 # Multi-agent IRL function for 3-player nonlinear game
-function ma_irl(;sync_update=true,       # If true, update all players' parameters simultaneously
-                single_update=10,        # Number of updates per player when sync_update=false
-                scale=true,              # Whether to scale feature counts
-                eta=0.0001,              # Initial learning rate
-                plot=true,               # Whether to generate plots
-                max_itr=5000,            # Maximum number of IRL iterations
-                sample_size=100,         # Number of simulated trajectories per iteration
-                dem_num=200)             # Number of demonstration trajectories
-
+function ma_irl(;sync_update=true, single_update=10, scale=true, eta=0.0001, plot=true, max_itr=5000, sample_size=100, dem_num=200)
     println("==========================")
 
-    # Load demonstration trajectories from pickle file
     data = load_pickle("data/demo_trajectories_rld.pickle")
-    x_trajectories = data["x"]  # State trajectories
-    u_trajectories = data["u"]  # Control trajectories
+    x_trajectories = data["x"]
+    u_trajectories = data["u"]
 
-    # Simulation parameters
-    steps = size(x_trajectories[1])[1]  # Number of time steps (e.g., 64)
-    horizon = 6.0                       # Total time horizon in seconds
-    plan_steps = 10                     # Number of planning steps
+    steps = size(x_trajectories[1])[1]
+    horizon = 6.0
+    plan_steps = 10
+    state_dims = [4, 4, 4]
+    ctrl_dims = [2, 2, 2]
+    DT = horizon / steps
 
-    state_dims = [4, 4, 4]              # State dimensions for 3 agents (e.g., [x, y, vx, vy])
-    ctrl_dims = [2, 2, 2]               # Control dimensions for 3 agents (e.g., [ax, ay])
-    DT = horizon / steps                # Time step size
-
-    # True cost parameters for demonstration generation
-    theta_true = [5.0, 1.0, 10.0,      # Agent 1: state cost, ctrl cost 1, ctrl cost 2
-                  10.0, 0.5, 10.0,     # Agent 2
-                  5.0, 0.5, 8.0]       # Agent 3
-
-    # Initialize simulation and game objects
+    theta_true = [5.0, 1.0, 10.0, 10.0, 0.5, 10.0, 5.0, 0.5, 8.0]
     sim_param = SimulationParams(steps=steps, horizon=horizon, plan_steps=plan_steps)
-    game = define_game(state_dims, ctrl_dims, DT, theta_true)  # Define nonlinear game dynamics and costs
+    game = define_game(state_dims, ctrl_dims, DT, zeros(length(theta_true)))
 
-    # Save metadata
     current_time = Dates.now()
-    data = Dict()
-    data["sim_param"] = sim_param
-    data["state_dims"] = state_dims
-    data["ctrl_dims"] = ctrl_dims
-    data["DT"] = DT
+    data = Dict("sim_param" => sim_param, "state_dims" => state_dims, "ctrl_dims" => ctrl_dims, "DT" => DT)
 
-    # Set up plotting if enabled
     if plot
-        fig_theta, axs_theta = subplots(3, 3, figsize=(6,4))  # For theta evolution
-        fig_f, axs_f = subplots(3, 3, figsize=(6,4))          # For feature counts
-        fig_dem, ax_dem = subplots(1, 1)                      # For trajectory visualization
+        fig_theta, axs_theta = subplots(3, 3, figsize=(6,4))
+        fig_f, axs_f = subplots(3, 3, figsize=(6,4))
+        fig_dem, ax_dem = subplots(1, 1)
         ax_dem.axis("equal")
         ax_dem.set_xlim(-15, 0)
         ax_dem.set_ylim(-2, 12)
-        ax_dem.set_xlabel("X Position")                       # Add X-axis label
-        ax_dem.set_ylabel("Y Position")                       # Add Y-axis label
-        ax_dem.set_title("Demonstration Trajectories")        # Add title
+        ax_dem.set_xlabel("X Position")
+        ax_dem.set_ylabel("Y Position")
+        ax_dem.set_title("Demonstration Trajectories")
     end
 
-    # Initial state for 3 agents: [x, y, vx, theta] per agent
-    x_init = [-12.3 7.2 5.20 0      # Agent 1: right
-              -1.0 7.3 5.20 -pi     # Agent 2: left
-              -8.8 10.59 5.20 -pi/2] # Agent 3: down
+    x_init = [-12.3 7.2 5.20 0; -1.0 7.3 5.20 -pi; -8.8 10.59 5.20 -pi/2]
 
-    # Generate reference trajectory (no control applied)
+    # Initialize NNs (shared cost network)
+    num_agents = 3
+    state_dim = sum(state_dims)
+    ctrl_dim = sum(ctrl_dims)
+    embedding_dim = 4
+    cost_network = CostNetwork(state_dims[1], ctrl_dims[1], embedding_dim)  # Shared across agents
+    policy_networks = [PolicyNetwork(state_dims[1], embedding_dim, ctrl_dims[i]) for i = 1:num_agents]
+    dynamics_networks = [DynamicsNetwork(embedding_dim, ctrl_dims[i], state_dims[i]) for i = 1:num_agents]
+    optimizer = torch.optim.Adam(
+        vcat([Dict("params" => cost_network.parameters())],
+             [Dict("params" => pn.parameters()) for pn in policy_networks],
+             [Dict("params" => dn.parameters()) for dn in dynamics_networks]),
+        lr=0.001
+    )
+
     x_ref = zeros(steps * 2, game.state_dim)
     x_ref[1, :] = x_init
     for i = 1:steps * 2 - 1
-        x_ref[i + 1, :] = game.dynamics_func([x_ref[i, :]; zeros(game.ctrl_dim)])
+        w, u_pred, _ = compute_costs_and_policies(game, x_ref[i, :], zeros(game.ctrl_dim), cost_network, policy_networks)
+        x_ref[i + 1, :] = dynamics_nn(game, x_ref[i, :], u_pred, w, dynamics_networks)
     end
     println("==========================")
 
-    # Save boundary condition data
     fname_bc = string("data/", "data_bc", ".jld2")
     x_refs_bc = x_ref
     @save fname_bc x_trajectories x_refs_bc
     println(" Saved BC data")
 
-    #=============#
-    # Generate demonstrations (loaded from pickle)
-    #=============#
-    feature_k = length(theta_true)  # Number of features (9 for 3 agents)
-
-    # dem_results, x_trajectories_data, u_trajectories_data = generate_simulations(sim_param=sim_param,
-    #                                    nl_game=game,
-    #                                    x_init=x_init,
-    #                                    traj_ref=x_ref,
-    #                                    num_sim=dem_num)
-
-    # x_trajectories = dem_results.state_trajectories
-    # u_trajectories = dem_results.ctrl_trajectories
-    # u_trajectories = [zeros(Float64, size(x_trajectories_data[1])[1]-1, 6) for _ in 1:length(x_trajectories)]
-
-    # Plot demonstration trajectories
+    feature_k = length(theta_true)
     if plot
         for i = 1:length(x_trajectories)
             ax_dem.plot(x_trajectories[i][:, 1], x_trajectories[i][:, 2], alpha=0.3, color="red")
             ax_dem.plot(x_trajectories[i][:, 5], x_trajectories[i][:, 6], alpha=0.3, color="blue")
             ax_dem.plot(x_trajectories[i][:, 9], x_trajectories[i][:, 10], alpha=0.3, color="green")
         end
-        ax_dem.legend()  # Add legend to distinguish agents
+        ax_dem.legend(["Agent 1", "Agent 2", "Agent 3"])
         pause(0.1)
     end
 
-    # Compute demonstration feature counts
     avg_dem_feature_counts = get_feature_counts_three(game, x_trajectories, u_trajectories, x_ref, feature_k)
-    scale_vector = scale ? avg_dem_feature_counts ./ 100 : ones(size(avg_dem_feature_counts))  # Scaling factor
+    scale_vector = scale ? avg_dem_feature_counts ./ 100 : ones(size(avg_dem_feature_counts))
     sc_avg_dem_feature_counts = avg_dem_feature_counts ./ scale_vector
     println(" this is avg dem feature counts ", avg_dem_feature_counts)
 
-    # Save demonstration data
     data["true theta"] = theta_true
     data["feature_counts_demonstration"] = avg_dem_feature_counts
     data["demonstration_xtrajectory"] = x_trajectories
     data["demonstration_utrajectory"] = u_trajectories
     data["x_reference"] = x_ref
-
     fname = string("data/", current_time, ".jld2")
-    # @save fname data  # Uncomment to save
+    # @save fname data
 
-    #=============# 
-    # IRL iteration loop
-    #=============#
-    rand_init = Product(Uniform.([0.2, 0.2, 2.0, 0.2, 0.2, 2.0, 0.2, 0.2, 2.0],  # Lower bounds
-                                 [0.5, 0.5, 5.0, 0.5, 0.5, 5.0, 0.5, 0.5, 5.0]))  # Upper bounds
-    theta_curr = rand(rand_init) .* [sample([-1, 1]) for i = 1:feature_k] + [0, 0, 0, 5.0, 1.0, 10.0, 0, 0, 0]  # Random initialization with offset
-
-    theta_avg = theta_curr  # Running average of theta
-    theta_est = zeros(max_itr + 1, feature_k)  # Store theta estimates over iterations
-    theta_est[1, :] = theta_curr
-    theta_smooth = zeros(max_itr + 1, feature_k)  # Smoothed theta estimates
-    theta_smooth[1, :] = theta_avg
-    feature_counts = zeros(max_itr, feature_k)  # Store feature counts
+    # IRL loop
+    w_est = zeros(max_itr + 1, num_agents, embedding_dim)
+    feature_counts = zeros(max_itr, feature_k)
 
     for itr = 1:max_itr
         println(" ------------- in iteration ", itr , " ------------- ")
-        avg_pro_feature_counts = zeros(feature_k)
-        lr = rate(eta, itr)  # Update learning rate
 
-        # Update parameters for Agent 2 (example; others are commented out)
-        for player2_itr = 1:single_update
-            curr_game = define_game(state_dims, ctrl_dims, DT, theta_curr)  # Redefine game with current theta
-            results, x_trajectories_data, u_trajectories_data = generate_simulations(sim_param=sim_param,
-                                                                                    nl_game=curr_game,
-                                                                                    x_init=x_init,
-                                                                                    traj_ref=x_ref,
-                                                                                    num_sim=sample_size)
+        results, x_trajectories_sim, u_trajectories_sim = generate_simulations_nn(
+            sim_param, game, x_init, x_ref, sample_size, cost_network, policy_networks, dynamics_networks
+        )
 
-            x_trajectories = results.state_trajectories
-            u_trajectories = results.ctrl_trajectories
-            avg_pro_feature_counts = get_feature_counts_three(curr_game, x_trajectories, u_trajectories, x_ref, feature_k)
-            sc_avg_pro_feature_counts = avg_pro_feature_counts ./ scale_vector
-
-            # Gradient descent update for Agent 2's parameters (theta[4:6])
-            theta_curr[4:6] = theta_curr[4:6] - lr * (sc_avg_dem_feature_counts[4:6] - sc_avg_pro_feature_counts[4:6])
-            theta_curr = max.(0.0, theta_curr)  # Ensure non-negative theta
+        dynamics_loss = 0.0
+        equilibrium_loss = 0.0
+        w_curr = zeros(num_agents, embedding_dim)
+        for i = 1:sample_size
+            x_traj = x_trajectories_sim[i]
+            u_traj = u_trajectories_sim[i]
+            for t = 1:steps
+                w, u_pred, costs = compute_costs_and_policies(game, x_traj[t, :], u_traj[t, :], cost_network, policy_networks)
+                s_next_pred = dynamics_nn(game, x_traj[t, :], u_traj[t, :], w, dynamics_networks)
+                dynamics_loss += sum((s_next_pred - x_traj[t + 1, :]) .^ 2)
+                dem_u = i <= length(u_trajectories) ? u_trajectories[i][t, :] : u_traj[t, :]
+                equilibrium_loss += sum(costs) + sum((u_pred - dem_u) .^ 2)
+                if i == 1 && t == 1
+                    w_curr = torch.stack(w).detach().numpy()
+                end
+            end
         end
 
-        # Store results
+        avg_pro_feature_counts = get_feature_counts_three(game, x_trajectories_sim, u_trajectories_sim, x_ref, feature_k)
         feature_counts[itr, :] = avg_pro_feature_counts
-        theta_est[itr + 1, :] = theta_curr
-        theta_avg = itr >= 10 ? mean(theta_est[itr - 9:itr + 1, :], dims=1) : mean(theta_est[1:itr + 1, :], dims=1)
-        theta_smooth[itr + 1, :] = theta_avg
 
-        # Print progress
+        loss = torch.tensor(dynamics_loss / sample_size + equilibrium_loss / sample_size, requires_grad=true)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        w_est[itr + 1, :, :] = w_curr
+
         println("            this is avg dem feature counts ", avg_dem_feature_counts)
         println("            this is avg proposed feature counts ", avg_pro_feature_counts)
-        println("            this is our current theta estimation ", theta_curr, " and averaged over time ", theta_avg)
+        println("            this is our current w estimation ", w_curr)
 
-        # Save iteration data
-        data["theta_est"] = theta_est[1:itr + 1, :]
+        data["w_est"] = w_est[1:itr + 1, :, :]
         data["feature_counts_proposed"] = feature_counts[1:itr, :]
         fname = string("data/", current_time, ".jld2")
-        # @save fname data  # Uncomment to save
+        # @save fname data
 
         datapath = expanduser("~/Research/bluecity_example/data/")
         gname = string(datapath, "learned_x_trajectories_rld_simple", ".jld2")
-        @save gname x_trajectories  # Save learned trajectories
+        @save gname x_trajectories_sim
     end
 
-    # Plot theta and feature counts (labels added)
     if plot
         for i = 1:3
-            for j = 1:3
+            for j = 1:min(embedding_dim, 3)
                 idx = (i - 1) * 3 + j
-                axs_theta[i, j].plot(theta_est[:, idx], label="Estimated")
-                axs_theta[i, j].plot(theta_true[idx] * ones(max_itr + 1), "--", label="True")
-                axs_theta[i, j].set_title("Theta $idx")
+                axs_theta[i, j].plot(w_est[:, i, j], label="Estimated w[$i,$j]")
+                axs_theta[i, j].set_title("w[$i,$j]")
                 axs_theta[i, j].set_xlabel("Iteration")
                 axs_theta[i, j].set_ylabel("Value")
                 axs_theta[i, j].legend()
@@ -240,11 +202,11 @@ end
 #===========================#
 # Main execution
 #============================#
-ma_irl(sync_update=false,     # Update players sequentially
-       single_update=1,       # Number of updates per player
-       scale=true,            # Normalize features
-       eta=0.01,              # Starting learning rate
-       max_itr=10,            # Max iterations
-       sample_size=10,        # Samples per iteration
-       dem_num=10,            # Number of demonstrations
-       plot=true)             # Enable plotting
+ma_irl(sync_update=false,
+       single_update=1,
+       scale=true,
+       eta=0.01,
+       max_itr=10,
+       sample_size=10,
+       dem_num=10,
+       plot=true)
