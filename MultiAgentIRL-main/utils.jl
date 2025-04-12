@@ -166,111 +166,111 @@ end
 
 
 # return NonlinearGame instance for three player case
-function define_game(state_dims, ctrl_dims, DT, theta)
-    state_dim = sum(state_dims)
-    ctrl_dim = sum(ctrl_dims)
-    radius = 0.25
-    function dynamics_func(s)
-        @assert(length(s) == state_dim + ctrl_dim)
-        x1, y1, v1, theta1, x2, y2, v2, theta2, x3, y3, v3, theta3 = s[1:state_dim]
-        acc1, yr1, acc2, yr2, acc3, yr3 = s[state_dim+1:end]
-
-        x1_new = x1 + v1 * cos(theta1) * DT
-        y1_new = y1 + v1 * sin(theta1) * DT
-        v1_new = v1+ acc1 * DT
-        theta1_new = theta1 + yr1 * DT
-
-        x2_new = x2 + v2 * cos(theta2) * DT
-        y2_new = y2 + v2 * sin(theta2) * DT
-        v2_new = v2 + acc2 * DT
-        theta2_new = theta2 + yr2 * DT
-
-        x3_new = x3 + v3 * cos(theta3) * DT
-        y3_new = y3 + v3 * sin(theta3) * DT
-        v3_new = v3 + acc3 * DT
-        theta3_new = theta3 + yr3 * DT
-
-        return [x1_new, y1_new, v1_new, theta1_new, x2_new, y2_new, v2_new, theta2_new, x3_new, y3_new, v3_new, theta3_new]
-    end
-
-    function cost1(s)
-
-        @assert(length(s) == state_dim * 2 + ctrl_dim)
-        state_dim1 = state_dims[1]
-        state_dim2 = state_dims[2]
-        ctrl_dim1 = ctrl_dims[1]
-
-        state = s[1:state_dim]
-        ref = s[state_dim+1:state_dim*2]
-
-        ego_state = state[1:state_dim1]
-        ego_ref = ref[1:state_dim1]
-
-        control1 = s[state_dim*2+1:state_dim*2+ctrl_dim1]
-
-        dist12 = sqrt((ego_state[1] - state[state_dim1+1])^2 + (ego_state[2] - state[state_dim1+2])^2) - (2 * radius)
-        dist13 = sqrt((ego_state[1] - state[state_dim1+state_dim2+1])^2 + (ego_state[2] - state[state_dim1+state_dim2+2])^2) - (2 * radius)
-
-        return theta[1] * (ego_state - ego_ref)' * (ego_state - ego_ref) +
-               theta[2] * control1' * control1 +
-               theta[3]/((0.2*dist12 + 1)^10) +
-               theta[3]/((0.2*dist13 + 1)^10)
-    end
-
-    function cost2(s)
-        @assert(length(s) == state_dim * 2 + ctrl_dim)
-        state_dim1 = state_dims[1]
-        state_dim2 = state_dims[2]
-        ctrl_dim1 = ctrl_dims[1]
-        ctrl_dim2 = ctrl_dims[2]
-
-        state = s[1:state_dim]
-        ref = s[state_dim+1:state_dim*2]
-        # control1 = s[state_dim*2+1:state_dim*2+ctrl_dim1]
-
-        ego_state = state[state_dim1+1:state_dim1+state_dim2]
-        ego_ref = ref[state_dim1+1:state_dim1+state_dim2]
-
-        control2 = s[state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2]
-
-        dist21 = sqrt((ego_state[1] - state[1])^2 + (ego_state[2] - state[1])^2) - (2 * radius)
-        dist23 = sqrt((ego_state[1] - state[state_dim1+state_dim2+1])^2 + (ego_state[2] - state[state_dim1+state_dim2+2])^2) - (2 * radius)
-
-        return theta[4] * (ego_state - ego_ref)' * (ego_state - ego_ref) +
-               theta[5] * control2' * control2 +
-               theta[6]/((0.2*dist21 + 1)^10) +
-               theta[6]/((0.2*dist23 + 1)^10)
-    end
-
-    function cost3(s)
-        @assert(length(s) == state_dim * 2 + ctrl_dim)
-        state_dim1 = state_dims[1]
-        state_dim2 = state_dims[2]
-        ctrl_dim1 = ctrl_dims[1]
-        ctrl_dim2 = ctrl_dims[2]
-
-        state = s[1:state_dim]
-        ref = s[state_dim+1:state_dim*2]
-
-        ego_state = state[state_dim1+state_dim2+1:end]
-        ego_ref = ref[state_dim1+state_dim2+1:end]
-        control3 = s[state_dim*2+ctrl_dim1+ctrl_dim2+1:end]
-
-        dist31 = sqrt((ego_state[1] - state[1])^2 + (ego_state[2] - state[2])^2) - (2 * radius)
-        dist32 = sqrt((ego_state[1] - state[state_dim1+1])^2 + (ego_state[2] - state[state_dim1+1])^2) - (2 * radius)
-
-        return theta[7] * (ego_state - ego_ref)' * (ego_state - ego_ref) +
-               theta[8] * control3' * control3 +
-               theta[9]/((0.2*dist31 + 1)^10) +
-               theta[9]/((0.2*dist32 + 1)^10)
-    end
-
-
-
-    return NonlinearGame(state_dims, ctrl_dims;
-                    dynamics_func=dynamics_func,
-                    cost_funcs=[cost1, cost2, cost3])
-end
+# function define_game(state_dims, ctrl_dims, DT, theta)
+#     state_dim = sum(state_dims)
+#     ctrl_dim = sum(ctrl_dims)
+#     radius = 0.25
+#     function dynamics_func(s)
+#         @assert(length(s) == state_dim + ctrl_dim)
+#         x1, y1, v1, theta1, x2, y2, v2, theta2, x3, y3, v3, theta3 = s[1:state_dim]
+#         acc1, yr1, acc2, yr2, acc3, yr3 = s[state_dim+1:end]
+# 
+#         x1_new = x1 + v1 * cos(theta1) * DT
+#         y1_new = y1 + v1 * sin(theta1) * DT
+#         v1_new = v1+ acc1 * DT
+#         theta1_new = theta1 + yr1 * DT
+# 
+#         x2_new = x2 + v2 * cos(theta2) * DT
+#         y2_new = y2 + v2 * sin(theta2) * DT
+#         v2_new = v2 + acc2 * DT
+#         theta2_new = theta2 + yr2 * DT
+# 
+#         x3_new = x3 + v3 * cos(theta3) * DT
+#         y3_new = y3 + v3 * sin(theta3) * DT
+#         v3_new = v3 + acc3 * DT
+#         theta3_new = theta3 + yr3 * DT
+# 
+#         return [x1_new, y1_new, v1_new, theta1_new, x2_new, y2_new, v2_new, theta2_new, x3_new, y3_new, v3_new, theta3_new]
+#     end
+# 
+#     function cost1(s)
+# 
+#         @assert(length(s) == state_dim * 2 + ctrl_dim)
+#         state_dim1 = state_dims[1]
+#         state_dim2 = state_dims[2]
+#         ctrl_dim1 = ctrl_dims[1]
+# 
+#         state = s[1:state_dim]
+#         ref = s[state_dim+1:state_dim*2]
+# 
+#         ego_state = state[1:state_dim1]
+#         ego_ref = ref[1:state_dim1]
+# 
+#         control1 = s[state_dim*2+1:state_dim*2+ctrl_dim1]
+# 
+#         dist12 = sqrt((ego_state[1] - state[state_dim1+1])^2 + (ego_state[2] - state[state_dim1+2])^2) - (2 * radius)
+#         dist13 = sqrt((ego_state[1] - state[state_dim1+state_dim2+1])^2 + (ego_state[2] - state[state_dim1+state_dim2+2])^2) - (2 * radius)
+# 
+#         return theta[1] * (ego_state - ego_ref)' * (ego_state - ego_ref) +
+#                theta[2] * control1' * control1 +
+#                theta[3]/((0.2*dist12 + 1)^10) +
+#                theta[3]/((0.2*dist13 + 1)^10)
+#     end
+# 
+#     function cost2(s)
+#         @assert(length(s) == state_dim * 2 + ctrl_dim)
+#         state_dim1 = state_dims[1]
+#         state_dim2 = state_dims[2]
+#         ctrl_dim1 = ctrl_dims[1]
+#         ctrl_dim2 = ctrl_dims[2]
+# 
+#         state = s[1:state_dim]
+#         ref = s[state_dim+1:state_dim*2]
+#         # control1 = s[state_dim*2+1:state_dim*2+ctrl_dim1]
+# 
+#         ego_state = state[state_dim1+1:state_dim1+state_dim2]
+#         ego_ref = ref[state_dim1+1:state_dim1+state_dim2]
+# 
+#         control2 = s[state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2]
+# 
+#         dist21 = sqrt((ego_state[1] - state[1])^2 + (ego_state[2] - state[1])^2) - (2 * radius)
+#         dist23 = sqrt((ego_state[1] - state[state_dim1+state_dim2+1])^2 + (ego_state[2] - state[state_dim1+state_dim2+2])^2) - (2 * radius)
+# 
+#         return theta[4] * (ego_state - ego_ref)' * (ego_state - ego_ref) +
+#                theta[5] * control2' * control2 +
+#                theta[6]/((0.2*dist21 + 1)^10) +
+#                theta[6]/((0.2*dist23 + 1)^10)
+#     end
+# 
+#     function cost3(s)
+#         @assert(length(s) == state_dim * 2 + ctrl_dim)
+#         state_dim1 = state_dims[1]
+#         state_dim2 = state_dims[2]
+#         ctrl_dim1 = ctrl_dims[1]
+#         ctrl_dim2 = ctrl_dims[2]
+# 
+#         state = s[1:state_dim]
+#         ref = s[state_dim+1:state_dim*2]
+# 
+#         ego_state = state[state_dim1+state_dim2+1:end]
+#         ego_ref = ref[state_dim1+state_dim2+1:end]
+#         control3 = s[state_dim*2+ctrl_dim1+ctrl_dim2+1:end]
+# 
+#         dist31 = sqrt((ego_state[1] - state[1])^2 + (ego_state[2] - state[2])^2) - (2 * radius)
+#         dist32 = sqrt((ego_state[1] - state[state_dim1+1])^2 + (ego_state[2] - state[state_dim1+1])^2) - (2 * radius)
+# 
+#         return theta[7] * (ego_state - ego_ref)' * (ego_state - ego_ref) +
+#                theta[8] * control3' * control3 +
+#                theta[9]/((0.2*dist31 + 1)^10) +
+#                theta[9]/((0.2*dist32 + 1)^10)
+#     end
+# 
+# 
+# 
+#     return NonlinearGame(state_dims, ctrl_dims;
+#                     dynamics_func=dynamics_func,
+#                     cost_funcs=[cost1, cost2, cost3])
+# end
 
 function get_feature_counts_three(game, x_trajectories, u_trajectories, x_ref, feature_k)
     # println("get_feature_counts_three")
@@ -390,8 +390,14 @@ function compute_costs_and_policies(game, state, controls, cost_network, policy_
         state_idx_end = sum(game.state_dims[1:i])
         ctrl_idx_start = sum(game.ctrl_dims[1:i-1]) + 1
         ctrl_idx_end = sum(game.ctrl_dims[1:i])
-        si = state_torch[state_idx_start:state_idx_end]
-        ui = controls_torch[ctrl_idx_start:ctrl_idx_end]
+        println("state_idx_start: ", state_idx_start, " state_idx_end: ", state_idx_end)
+        println("typeof(state_idx_start): ", typeof(state_idx_start), " typeof(state_idx_end): ", typeof(state_idx_end))
+        si = state_torch.__getitem__(pybuiltin("slice")(state_idx_start-1,state_idx_end-1))
+        ui = controls_torch.__getitem__(pybuiltin("slice")(ctrl_idx_start-1,ctrl_idx_end-1))
+        println("si: ", si)
+        println("size(si): ", size(si))
+        println("ui: ", ui)
+        println("size(ui): ", size(ui))
         w[i] = cost_network(si, ui)
         u_pred[ctrl_idx_start:ctrl_idx_end] = policy_networks[i](si, w[i]).detach().numpy()
         costs[i] = torch.sum(w[i] * w[i])  # Cost depends only on private wi
@@ -400,13 +406,13 @@ function compute_costs_and_policies(game, state, controls, cost_network, policy_
 end
 
 function dynamics_nn(game, state, controls, w, dynamics_networks)
-    state_torch = torch.tensor(state, dtype=torch.float32)
+    # state_torch = torch.tensor(state, dtype=torch.float32)
     controls_torch = torch.tensor(controls, dtype=torch.float32)
     next_state = zeros(game.state_dim)
     for i = 1:game.num_agents
         start_idx = sum(game.state_dims[1:i-1]) + 1
         end_idx = sum(game.state_dims[1:i])
-        u_i = controls_torch[(i-1)*game.ctrl_dims[i]+1:i*game.ctrl_dims[i]]
+        u_i = controls_torch.__getitem__(pybuiltin("slice")((i-1)*game.ctrl_dims[i]+1,i*game.ctrl_dims[i]))
         next_state[start_idx:end_idx] = dynamics_networks[i](w[i], u_i).detach().numpy()
     end
     return next_state

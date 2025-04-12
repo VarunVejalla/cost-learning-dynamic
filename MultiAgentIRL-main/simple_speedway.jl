@@ -45,8 +45,8 @@ function ma_irl(;sync_update=true, single_update=10, scale=true, eta=0.0001, plo
     steps = size(x_trajectories[1])[1]
     horizon = 6.0
     plan_steps = 10
-    state_dims = [4, 4, 4]
-    ctrl_dims = [2, 2, 2]
+    state_dims = [12, 12, 12]
+    ctrl_dims = [6, 6, 6]
     DT = horizon / steps
 
     theta_true = [5.0, 1.0, 10.0, 10.0, 0.5, 10.0, 5.0, 0.5, 8.0]
@@ -68,7 +68,7 @@ function ma_irl(;sync_update=true, single_update=10, scale=true, eta=0.0001, plo
         ax_dem.set_title("Demonstration Trajectories")
     end
 
-    x_init = [-12.3 7.2 5.20 0; -1.0 7.3 5.20 -pi; -8.8 10.59 5.20 -pi/2]
+    x_init = [-12.3 7.2 5.20 0 -1.0 7.3 5.20 -pi -8.8 10.59 5.20 -pi/2]
 
     # Initialize NNs (shared cost network)
     num_agents = 3
@@ -85,7 +85,7 @@ function ma_irl(;sync_update=true, single_update=10, scale=true, eta=0.0001, plo
         lr=0.001
     )
 
-    x_ref = zeros(steps * 2, game.state_dim)
+    x_ref = zeros(steps * 2, state_dims)
     x_ref[1, :] = x_init
     for i = 1:steps * 2 - 1
         w, u_pred, _ = compute_costs_and_policies(game, x_ref[i, :], zeros(game.ctrl_dim), cost_network, policy_networks)

@@ -121,4 +121,4 @@ ma_irl(sync_update=false,     # if true, update param for both players at the sa
        sample_size = 50,      # number of samples in each update to approximate feature counts
        # sample_size=2,
        dem_num=500,
-       plot=false)
+       plot=true)
