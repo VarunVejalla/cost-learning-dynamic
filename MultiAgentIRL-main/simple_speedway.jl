@@ -85,7 +85,7 @@ function ma_irl(;sync_update=true, single_update=10, scale=true, eta=0.0001, plo
         lr=0.001
     )
 
-    x_ref = zeros(steps * 2, state_dims)
+    x_ref = zeros(Tuple(vcat([steps * 2], state_dims)))
     x_ref[1, :] = x_init
     for i = 1:steps * 2 - 1
         w, u_pred, _ = compute_costs_and_policies(game, x_ref[i, :], zeros(game.ctrl_dim), cost_network, policy_networks)
