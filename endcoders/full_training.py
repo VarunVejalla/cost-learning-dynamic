@@ -18,6 +18,22 @@ class CostNet(nn.Module):
         x = torch.cat([state, action, cost_embed], dim=-1)
         return self.net(x)  # (batch_size, 1)
 
+class PolicyNet(nn.Module):
+    def __init__(self, state_dim, cost_dim, action_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim + cost_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, action_dim)
+        )
+
+    def forward(self, s_t, c_i):
+        x = torch.cat([s_t, c_i], dim=-1)
+        return self.net(x)  # returns a_t^i
+
+
 class DynamicsNet(nn.Module):
     def __init__(self, state_dim=4*N, action_dim=m*N):
         super().__init__()
@@ -31,13 +47,12 @@ class DynamicsNet(nn.Module):
         x = torch.cat([state, actions], dim=-1)
         return self.net(x)
 
-def training_step(trajectory_batch, cost_net, dynamics_net, cost_embeddings, λ=1.0, α=1.0, β=1.0, γ=1.0):
+def training_step(trajectory_batch, cost_net, dynamics_net, policy_net, cost_embeddings, λ=1.0, α=1.0, β=1.0, γ=1.0):
     """
     trajectory_batch: dict of tensors with keys:
         - states: (B, T, N, 4)
         - next_states: (B, T, N, 4)
     """
-
     states = trajectory_batch['states']      # (B, T, N, 4)
     next_states = trajectory_batch['next_states']  # (B, T, N, 4)
 
@@ -52,18 +67,17 @@ def training_step(trajectory_batch, cost_net, dynamics_net, cost_embeddings, λ=
         s_t = states[:, t]       # (B, N, 4)
         s_tp1 = next_states[:, t]  # (B, N, 4)
 
-        # === Infer actions per agent ===
-        inferred_actions = []  # (B, N, m)
+        # === Use PolicyNet to predict actions ===
+        predicted_actions = []  # (B, N, m)
         for i in range(N):
-            s_i_t = s_t[:, i]  # (B, 4)
-            s_i_tp1 = s_tp1[:, i]
+            s_i_t = s_t[:, i]                  # (B, 4)
+            c_i = cost_embeddings[i].unsqueeze(0).expand(B, -1)  # (B, k)
 
-            # Option 1: Action inference net (simplified)
-            a_i_t = (s_i_tp1[:, 2:] - s_i_t[:, 2:])  # crude approx: vel = delta pos, so action = delta vel
-            inferred_actions.append(a_i_t)  # (B, 2)
+            a_i_t = policy_net(s_i_t, c_i)     # (B, m)
+            predicted_actions.append(a_i_t)
 
-        actions = torch.stack(inferred_actions, dim=1)  # (B, N, m)
-        actions_flat = actions.view(B, -1)  # (B, N*m)
+        actions = torch.stack(predicted_actions, dim=1)  # (B, N, m)
+        actions_flat = actions.view(B, -1)               # (B, N*m)
 
         # === Forward Dynamics Loss ===
         s_t_flat = s_t.view(B, -1)
@@ -74,11 +88,11 @@ def training_step(trajectory_batch, cost_net, dynamics_net, cost_embeddings, λ=
 
         # === ECE Loss ===
         for i in range(N):
-            s_i_t = s_t[:, i]    # (B, 4)
-            a_i_t = actions[:, i]  # (B, m)
+            s_i_t = s_t[:, i]         # (B, 4)
+            a_i_t = actions[:, i]     # (B, m)
             c_i = cost_embeddings[i].unsqueeze(0).expand(B, -1)  # (B, k)
 
-            # Enable second derivatives
+            # Enable gradients
             s_i_t.requires_grad_(True)
             a_i_t.requires_grad_(True)
             c_i.requires_grad_(True)
@@ -88,7 +102,7 @@ def training_step(trajectory_batch, cost_net, dynamics_net, cost_embeddings, λ=
             # First derivative wrt action
             grad_a = torch.autograd.grad(cost.sum(), a_i_t, create_graph=True)[0]  # (B, m)
 
-            # Second derivative (Hessian diagonal approximation)
+            # Second derivative (Hessian diagonal approx)
             hess_diag = []
             for j in range(a_i_t.shape[1]):
                 grad2 = torch.autograd.grad(grad_a[:, j].sum(), a_i_t, retain_graph=True)[0][:, j]
@@ -102,7 +116,7 @@ def training_step(trajectory_batch, cost_net, dynamics_net, cost_embeddings, λ=
         # === Acceleration Penalty ===
         v_t = s_t[:, :, 2:]         # (B, N, 2)
         v_tp1 = s_tp1[:, :, 2:]
-        accel = (v_tp1 - v_t)  # assume unit timestep
+        accel = (v_tp1 - v_t)       # assume unit timestep
         accel_loss = accel.square().sum(dim=-1).mean()
         total_accel_loss += accel_loss
 
@@ -116,19 +130,20 @@ def training_step(trajectory_batch, cost_net, dynamics_net, cost_embeddings, λ=
         β * total_accel_loss +
         γ * embed_loss
     )
-    
-    
 
     return total_loss
+
 
 cost_net = CostNet()
 dynamics_net = DynamicsNet()
 cost_embeddings = nn.Parameter(torch.randn(N, k))
+policy_net = PolicyNet(state_dim=4, cost_dim=k, action_dim=m)
 
-
-optimizer = torch.optim.Adam(list(cost_net.parameters()) + 
-                             list(dynamics_net.parameters()) + 
+optimizer = torch.optim.Adam(list(cost_net.parameters()) +
+                             list(dynamics_net.parameters()) +
+                             list(policy_net.parameters()) +
                              [cost_embeddings], lr=1e-3)
+
 
 num_epochs = 100
 
