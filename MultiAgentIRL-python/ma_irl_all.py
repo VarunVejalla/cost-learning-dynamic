@@ -40,6 +40,17 @@ def get_feature_counts(x_trajectories, u_trajectories, cost_functions):
     return avg_feature_counts, feature_counts
             
 
+# e.g. 
+# state space for a single agent is 5
+# 6 agents
+# action space for a single agent is 7
+
+# dynamics: 5 x 7 --> 5
+# cost function: 30 x 7 --> 1
+# agent_to_functions: array of arrays of agent indices (disjoint)
+# num_agents
+
+
 def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_iter, agent_to_functions, num_agents):
     # x_trajectories shape = (num_trajectories, steps_in_trajectory+1, whole state_dim)
     # u_trajectories shape = (num_trajectories, steps_in_trajectory, whole action_dim)
