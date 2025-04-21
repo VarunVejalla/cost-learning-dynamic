@@ -269,6 +269,12 @@ function ma_irl(;sync_update=true, single_update=10, scale=true, eta=0.0001, plo
         println("            this is avg proposed feature counts ", avg_pro_feature_counts)
         println("            this is our current theta estimation ", theta_curr, " and averaged over time ", theta_avg)
 
+        # Print theta estimation
+        println("            this is our theta_true ", theta_true)
+        println("            this is our current theta estimation ", theta_est[itr+1,:])
+        println("            this is our current theta smooth estimation ", theta_smooth[itr+1,:])
+        
+
         for i = 1:feature_k
             axs_theta[i].clear()
             axs_theta[i].plot(theta_est[1:itr+1, i])
@@ -296,6 +302,6 @@ end
 #===========================
 ============================#
 # ma_irl(sync_update=true, eta=0.001)
-ma_irl(sync_update=true, single_update=20, scale=false, eta=0.01, plot=true, max_itr=4000)
+ma_irl(sync_update=true, single_update=20, scale=false, eta=0.01, plot=true, max_itr=100)
 
 # plot_lr(0.01)

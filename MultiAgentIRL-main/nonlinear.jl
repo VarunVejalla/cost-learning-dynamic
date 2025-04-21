@@ -26,7 +26,8 @@ function ma_irl(;sync_update=true,
                 scale=true,
                 eta=0.0001,
                 plot=true,
-                max_itr=5000,
+                # max_itr = 100
+                max_itr=100,
                 sample_size=100,
                 dem_num=200)
 
@@ -104,6 +105,11 @@ function ma_irl(;sync_update=true,
     # data["demonstration_xtrajectory"] = x_trajectories
     # data["demonstration_utrajectory"] = u_trajectories
     # data["x_reference"] = x_ref
+
+    #print theta true and theta estimate
+    println("true theta: ", theta_true)
+    println("feature counts: ", sc_avg_dem_feature_counts)
+    # print("feature counts: ", avg_dem_feature_counts)
 
     fname = string("cioc_data/twoplayer.h5")
     @save fname demo_data
