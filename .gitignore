@@ -1,5 +1,6 @@
 /INTERACTION
 venv/
+multi/
 *.swp
 .ipynb_checkpoints/
 MultiAgentIRL-main/plots/.ipynb_checkpoints/
