@@ -83,7 +83,7 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
             control = torch.stack(control)
             
             u_history[t] = control + u_nominal[0]
-            x_history[t+1] = nl_game.dynamics_func(x_history[t], u_history[t])
+            x_history[t+1] = nl_game.dynamics(x_history[t], u_history[t])
         
         x_trajs.append(x_history)
         u_trajs.append(u_history)
@@ -142,7 +142,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
     plan_steps = sim_param.plan_steps
     x_dim = nl_game.x_dim
     u_dim = nl_game.u_dim
-    u_dims = nl_game.udims
+    u_dims = nl_game.u_dims
     
     x_trajectory = torch.zeros((plan_steps+1, x_dim))
     x_trajectory[0] = x_init
@@ -173,7 +173,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         
         for t in range(plan_steps):
             dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
-            jac = functional.jacobian(nl_game.dynamics_func, dynamics_input)
+            jac = functional.jacobian(nl_game.dynamics, dynamics_input)
             A = jac[:, :x_dim]
             start_index, end_index = 0,x_dim
             
