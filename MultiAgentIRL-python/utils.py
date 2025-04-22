@@ -112,61 +112,93 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     # for doing the linear quadratic game backwards passes, 
     # initialize the terminal state to the terminal costs and
     # then begin to iterate backwards for T iterations
+    def lqgame_QRE(dynamic_dicts, cost_dicts):
+    A = dynamic_dicts["A"]
+    B = dynamic_dicts["B"]
+    Q = cost_dicts["Q"]
+    l = cost_dicts["l"]
+    R = cost_dicts["R"]
+    
+    num_agents = len(B)
+    T = len(A)
+    n = B[0][0].shape[0]
+    
+    m = [B[i][0].shape[1] if len(B[i][0].shape) > 1 else 1 for i in range(num_agents)]
+    
+    P = [[] for _ in range(num_agents)]
+    alpha = [[] for _ in range(num_agents)]
+    cov = [[] for _ in range(num_agents)]
+    Z = [[] for _ in range(num_agents)]
+    zeta = [[] for _ in range(num_agents)]
+    F = []
+    beta = []
+
     for i in range(num_agents):
         Z[i].append(Q[i][-1])
         zeta[i].append(l[i][-1])
-    
-        for t in range(T-1, -1, -1):
+        P[i].append(torch.zeros((m[i], n)))
+        alpha[i].append(torch.zeros((m[i], 1)))  # Adjust shape if needed
 
+    for t in range(T - 1, -1, -1):
+        F_t = A[t]
+        beta_t = 0
+
+        for i in range(num_agents):
             Z_next = Z[i][-1]
             zeta_next = zeta[i][-1]
 
-            # solving that P matrix RIPPPP
-            # M1 = Rii + BiT @ Zi_{t+1} @ Bi 
-            M1 = (R[i][i][t] + (B[i][t].T @ Z_next @ B[i][t])) @ 
-            # M2 = BiT @ Zi_{t+1} @ Ai + Bi @ P_{t+1}
+            M1 = R[i][i][t] + B[i][t].T @ Z_next @ B[i][t]
             M2 = torch.zeros((m[i], n))
             for j in range(num_agents):
                 if j == i: continue
-                M2 += B[j][t].T @ P[j][t][-1]
-            M2 = (B[i][t].T @ Z_next) @ M2
-            rhs1 = B[i][t].T @ Z_next @ A[i][t]
-            P[i].append(torch.linalg.solve(M1, rhs1-M2))
+                M2 += B[j][t].T @ P[j][-1]
+            M2 = B[i][t].T @ Z_next @ M2
+            rhs1 = B[i][t].T @ Z_next @ A[t]
+            P_t = torch.linalg.solve(M1, rhs1 - M2)
+            P[i].append(P_t)
 
-            # solving that zeta matrix RIPPPP
-            # M3 = Rii + BiT @ Zi_{t+1} @ Bi 
-            M3 = (R[i][i][t] + (B[i][t].T @ Z_next @ B[i][t]))
-            # M3 = BiT @ Zi_{t+1} @ Bj @ P_{t+1}
-            M4 = torch.zeros((m[i], n))
+            M4 = torch.zeros((m[i], 1))
             for j in range(num_agents):
                 if j == i: continue
-                M4 += B[j][t].T @ alpha[j][t][-1]
-            M4 = (B[i][t].T @ Z_next) @ M4
+                M4 += B[j][t].T @ alpha[j][-1]
+            M4 = B[i][t].T @ Z_next @ M4
             rhs2 = B[i][t].T @ zeta_next
-            alpha_t = torch.linalg.solve(M3, rhs2-M2)
+            alpha_t = torch.linalg.solve(M1, rhs2 - M4)
             alpha[i].append(alpha_t)
 
-            # solving that F and Beta matrix RIPPPP
-            F_t = A[t]
-            beta_t = 0
-            for j in range(num_agents):
-                F_t -= B[j][t] @ P[j][t]
-                beta_t -= B[j][t] @ alpha[j][t]
-            F.append(F_t)
-            beta.append(beta_t)
+            F_t -= B[i][t] @ P_t
+            beta_t -= B[i][t] @ alpha_t
 
-            Z_it = (F_t.T @ Z_next[i] @ F_t)
-            zeta_it = (F_t.T @ (zeta_next[i] + Z_next[i] @ beta_t))
-            for j in range(num_agents):
-                Z_it += (P[j][t].T @ R[i][j][t] @ P[j][t]) + Q[i][t]
-                zeta_it += (P[j][t].T @ R[i][j][t] @ alpha[j][t][-1]) + l[i][t]
-            Z[i].append()
+        F.append(F_t)
+        beta.append(beta_t)
 
-            # solving that covariance matrix RIPPPP
+        for i in range(num_agents):
+            Z_next = Z[i][-1]
+            zeta_next = zeta[i][-1]
+
+            Z_it = F_t.T @ Z_next @ F_t
+            zeta_it = F_t.T @ (zeta_next + Z_next @ beta_t)
+
+            for j in range(num_agents):
+                Z_it += P[j][-1].T @ R[i][j][t] @ P[j][-1]
+                zeta_it += P[j][-1].T @ R[i][j][t] @ alpha[j][-1]
+
+            Z_it += Q[i][t]
+            zeta_it += l[i][t]
+
+            Z[i].append(Z_it)
+            zeta[i].append(zeta_it)
+
             cov_t = torch.linalg.inv(R[i][i][t] + B[i][t].T @ Z_next @ B[i][t])
             cov[i].append(cov_t)
-             
+
+    # Optional: reverse time order
+    P = [p[::-1] for p in P]
+    alpha = [a[::-1] for a in alpha]
+    cov = [c[::-1] for c in cov]
+
     return P, alpha, cov
+
 
 def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor):
     # TODO: Varun
