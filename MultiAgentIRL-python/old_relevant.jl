@@ -671,16 +671,20 @@ function solve_iLQGame(;sim_param::SimulationParams,
                 push!(Costs["l3"], grads3[1:state_dim])
 
                 push!(Costs["R11"], hess1[state_dim*2+1:state_dim*2+ctrl_dim1, state_dim*2+1:state_dim*2+ctrl_dim1])
+                push!(Costs["R21"], hess2[state_dim*2+1:state_dim*2+ctrl_dim1, state_dim*2+1:state_dim*2+ctrl_dim1])
+                push!(Costs["R31"], hess3[state_dim*2+1:state_dim*2+ctrl_dim1, state_dim*2+1:state_dim*2+ctrl_dim1])
+
                 push!(Costs["R12"], hess1[state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2,
                                           state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2])
                 push!(Costs["R13"], hess1[state_dim*2+ctrl_dim1+ctrl_dim2+1:state_dim*2+ctrl_dim,
                                           state_dim*2+ctrl_dim1+ctrl_dim2+1:state_dim*2+ctrl_dim])
-                push!(Costs["R21"], hess2[state_dim*2+1:state_dim*2+ctrl_dim1, state_dim*2+1:state_dim*2+ctrl_dim1])
+                
                 push!(Costs["R22"], hess2[state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2,
                                           state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2])
                 push!(Costs["R23"], hess2[state_dim*2+ctrl_dim1+ctrl_dim2+1:state_dim*2+ctrl_dim,
                                           state_dim*2+ctrl_dim1+ctrl_dim2+1:state_dim*2+ctrl_dim])
-                push!(Costs["R31"], hess3[state_dim*2+1:state_dim*2+ctrl_dim1, state_dim*2+1:state_dim*2+ctrl_dim1])
+                
+
                 push!(Costs["R32"], hess3[state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2,
                                           state_dim*2+ctrl_dim1+1:state_dim*2+ctrl_dim1+ctrl_dim2])
                 push!(Costs["R33"], hess3[state_dim*2+ctrl_dim1+ctrl_dim2+1:state_dim*2+ctrl_dim,
