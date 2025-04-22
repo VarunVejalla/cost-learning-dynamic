@@ -181,7 +181,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
                 
                 for agent in range(num_player):
                     start_index,end_index = end_index,end_index+u_dims[agent]
-                    u_trajectory[t, start_index:end_index] = (-N[agent][reverse_index] * delta_x - alpha[i][reverse_index] * step_size) + u_trajectory_prev[t,start_index:end_index]
+                    u_trajectory[t, start_index:end_index] = (-N[agent][reverse_index] * delta_x - alpha[agent][reverse_index] * step_size) + u_trajectory_prev[t,start_index:end_index]
                 
                 x_trajectory[t+1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
             if torch.max(torch.abs(x_trajectory - x_trajectory_prev)) > 1.0:
