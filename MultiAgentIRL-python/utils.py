@@ -77,10 +77,11 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
     return SimulationResults(x_trajs, u_trajs), x_trajs_data, u_trajs_data
 
 def lqgame_QRE(dynamic_dicts, cost_dicts):
-    # TODO: John
-    # from Varun: feel free to change the format of what these look like
-    #               - solve_iLQGame is what writes to these dictionaries
-    
+    # TODO: I have no idea how to test this, but I do believe
+    # that I implemented it pretty rigourously identical to the 
+    # paper it's definitions. If you would like me to explain 
+    # something let me know! - John
+
     A = dynamic_dicts["A"]
     B = dynamic_dicts["B"]
     Q = cost_dicts["Q"]
@@ -108,14 +109,55 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     zeta = [[] for _ in range(num_agents)]
     beta = []
     
+    # for doing the linear quadratic game backwards passes, 
+    # initialize the terminal state to the terminal costs and
+    # then begin to iterate backwards for T iterations
     for i in range(num_agents):
-        Z[i].append(Q[[i][-1]])
+        Z[i].append(Q[i][-1])
         zeta[i].append(l[i][-1])
     
-    for t in range(T-1, -1, -1):
-        # TODO
-        continue
-    
+        for t in range(T-1, -1, -1):
+
+            Z_next = Z[i][-1]
+            zeta_next = zeta[i][-1]
+
+            # solving that P matrix RIPPPP
+            # M1 = Rii + BiT @ Zi_{t+1} @ Bi 
+            M1 = R[i][i][t] + B[i][t].T @ Z_next @ B[i][t]
+            # M2 = BiT @ Zi_{t+1} @ Ai + Bi @ P_{t+1}
+            M2 = torch.zeros((m[i], n))
+            for j in range(num_agents):
+                if j == i: continue
+                M2 += B[j][t].T @ P[j][t][-1]
+            M2 = (B[i][t].T @ Z_next) @ M2
+            rhs1 = B[i][t].T @ Z_next @ A[i][t]
+            P[i].append(torch.linalg.solve(M1, rhs1-M2))
+
+            # solving that zeta matrix RIPPPP
+            # M3 = Rii + BiT @ Zi_{t+1} @ Bi 
+            M3 = R[i][i][t] + B[i][t].T @ Z_next @ B[i][t]
+            # M3 = BiT @ Zi_{t+1} @ Bj @ P_{t+1}
+            M4 = torch.zeros((m[i], n))
+            for j in range(num_agents):
+                if j == i: continue
+                M4 += B[j][t].T @ alpha[j][t][-1]
+            M4 = (B[i][t].T @ Z_next) @ M4
+            rhs2 = B[i][t].T @ zeta_next
+            zeta[i].append(torch.linalg.solve(M3, rhs2-M2))
+
+            # solving that F and Beta matrix RIPPPP
+            F_t = A[t]
+            beta_t = 0
+            for j in range(num_agents):
+                F_t -= B[j] @ P[j][t]
+                beta_t -= B[j] @ alpha[j][t]
+            F.append(F_t)
+            beta.append(beta_t)
+
+            # solving that covariance matrix RIPPPP
+            cov_t = torch.linalg.inv([i][i][t] + B[i][t].T @ Z_next @ B[i][t])
+            cov[i].append(cov_t)
+             
     return P, alpha, cov
 
 def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor):
@@ -186,7 +228,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
                 x_trajectory[t+1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
             if torch.max(torch.abs(x_trajectory - x_trajectory_prev)) > 1.0:
                 step_size /= 2
-            else
+            else:
                 done = True
         
         err = torch.sum(torch.abs(x_trajectory_prev - x_trajectory))
