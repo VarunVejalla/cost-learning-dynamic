@@ -123,7 +123,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
 
             # solving that P matrix RIPPPP
             # M1 = Rii + BiT @ Zi_{t+1} @ Bi 
-            M1 = R[i][i][t] + B[i][t].T @ Z_next @ B[i][t]
+            M1 = (R[i][i][t] + (B[i][t].T @ Z_next @ B[i][t])) @ 
             # M2 = BiT @ Zi_{t+1} @ Ai + Bi @ P_{t+1}
             M2 = torch.zeros((m[i], n))
             for j in range(num_agents):
@@ -135,7 +135,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
 
             # solving that zeta matrix RIPPPP
             # M3 = Rii + BiT @ Zi_{t+1} @ Bi 
-            M3 = R[i][i][t] + B[i][t].T @ Z_next @ B[i][t]
+            M3 = (R[i][i][t] + (B[i][t].T @ Z_next @ B[i][t]))
             # M3 = BiT @ Zi_{t+1} @ Bj @ P_{t+1}
             M4 = torch.zeros((m[i], n))
             for j in range(num_agents):
@@ -143,19 +143,27 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
                 M4 += B[j][t].T @ alpha[j][t][-1]
             M4 = (B[i][t].T @ Z_next) @ M4
             rhs2 = B[i][t].T @ zeta_next
-            zeta[i].append(torch.linalg.solve(M3, rhs2-M2))
+            alpha_t = torch.linalg.solve(M3, rhs2-M2)
+            alpha[i].append(alpha_t)
 
             # solving that F and Beta matrix RIPPPP
             F_t = A[t]
             beta_t = 0
             for j in range(num_agents):
-                F_t -= B[j] @ P[j][t]
-                beta_t -= B[j] @ alpha[j][t]
+                F_t -= B[j][t] @ P[j][t]
+                beta_t -= B[j][t] @ alpha[j][t]
             F.append(F_t)
             beta.append(beta_t)
 
+            Z_it = (F_t.T @ Z_next[i] @ F_t)
+            zeta_it = (F_t.T @ (zeta_next[i] + Z_next[i] @ beta_t))
+            for j in range(num_agents):
+                Z_it += (P[j][t].T @ R[i][j][t] @ P[j][t]) + Q[i][t]
+                zeta_it += (P[j][t].T @ R[i][j][t] @ alpha[j][t][-1]) + l[i][t]
+            Z[i].append()
+
             # solving that covariance matrix RIPPPP
-            cov_t = torch.linalg.inv([i][i][t] + B[i][t].T @ Z_next @ B[i][t])
+            cov_t = torch.linalg.inv(R[i][i][t] + B[i][t].T @ Z_next @ B[i][t])
             cov[i].append(cov_t)
              
     return P, alpha, cov

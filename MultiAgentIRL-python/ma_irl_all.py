@@ -1,4 +1,5 @@
 import numpy as np
+from utils import SimulationParams, SimulationResults, NonlinearGame, generate_simulations, get_simulated_trajectories, lqgame_QRE
 
 state_dim = 4 # 2 for position, 2 for velocity
 action_dim = 2 # both acceleration
