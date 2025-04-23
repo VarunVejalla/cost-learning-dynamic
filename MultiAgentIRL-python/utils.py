@@ -390,9 +390,11 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
     
     return N, alpha, cov, x_trajectory_prev, u_trajectory_prev
 
-delta_time = 0.01
+
 
 def cost_func_p0(state, action):
+    
+    
     pos_p0 = state[0:2]  # x0, y0
     pos_p1 = state[4:6]  # x1, y1
     act_p0 = action[0:2]  # ax0, ay0
@@ -405,7 +407,7 @@ def cost_func_p0(state, action):
     action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
 
 
-    cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
+    cost = 0.5 * dist_to_goal + 2.0 / (dist_to_other + 1e-6) + action_cost
     return cost
 
 def cost_func_p1(state, action):
@@ -424,6 +426,8 @@ def cost_func_p1(state, action):
     return cost
 
 def dyn(state, action):
+    delta_time = 0.01
+    
     pos0 = state[0:2]
     vel0 = state[2:4]
     pos1 = state[4:6]
@@ -440,22 +444,21 @@ def dyn(state, action):
     return torch.cat([new_pos0, new_vel0, new_pos1, new_vel1])
 
 
+if __name__ == "__main__":
+    x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
 
+    x_dims = [4,4]
+    x_dim = 8
 
-x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
+    u_dims = [2,2]
+    u_dim = 4
 
-x_dims = [4,4]
-x_dim = 8
+    cost_funcs = [cost_func_p0, cost_func_p1]
+    dynamics_func = dyn
 
-u_dims = [2,2]
-u_dim = 4
+    sim_param = SimulationParams(1,-1,20)
+    nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
-cost_funcs = [cost_func_p0, cost_func_p1]
-dynamics_func = dyn
+    S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
 
-sim_param = SimulationParams(40,-1,5)
-nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
-
-S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
-
-print(x)
+    print(x)
