@@ -139,10 +139,17 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     # paper it's definitions. If you would like me to explain 
     # something let me know! - John
 
-    As = dynamic_dicts["A"]
-    Bs = dynamic_dicts["B"]
+    As = [torch.tensor(a) for a in dynamic_dicts["A"]]
+    
+    Bs = [torch.stack(b) for b in dynamic_dicts["B"]]
+    
+    
+    
     Qs = cost_dicts["Q"]
     ls = cost_dicts["l"]
+    # for row in cost_dicts["R"]:
+    #     for col in row:
+    #         print(col)
     Rs = cost_dicts["R"]
     
     num_agents = len(Bs)
@@ -189,7 +196,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
                 start_j, end_j = end_j, end_j + m[i]
                 
                 if i == j:
-                    S[start:end, start_j:end_j] = Rs[i,i] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
+                    S[start:end, start_j:end_j] = Rs[i][i] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
                 else:
                     S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
         
@@ -197,6 +204,12 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         start, end = 0,0
         for i in range(num_agents):
             start, end = end, end + m[i]
+            
+            print(sum_m, n)
+            print(Bs[i].T.shape)
+            print(Z_n[i].shape)
+            print(As[t].shape)
+            
             YN[start:end] = Bs[i].T @ Z_n[i] @ As[t]
         
         temp_P = torch.linalg.solve(S, YN)# temp_P = S\YN
@@ -252,6 +265,13 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         
     return Ps, alphas, covs
 
+def combine_hessian_blocks(hessian_blocks):
+    row_blocks = []
+    for row in hessian_blocks:
+        row_blocks.append(torch.cat(row, dim=1))
+    full_hessian = torch.cat(row_blocks, dim=0)
+    return full_hessian
+
 def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor):
     # TODO: Varun
     num_player = len(nl_game.u_dims)
@@ -290,45 +310,55 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         Costs["R"] = [[[] for _ in range(num_player)] for _ in range(num_player)]
         
         for t in range(plan_steps):
-            dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
-            jac = functional.jacobian(nl_game.dynamics, dynamics_input)
+            # dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
+            # jac = functional.jacobian(nl_game.dynamics, dynamics_input)
+            jac = functional.jacobian(nl_game.dynamics, (x_trajectory_prev[t], u_trajectory_prev[t]))
+            jac = torch.cat(jac, dim=-1)
+            
             A = jac[:, :x_dim]
             start_index, end_index = 0,x_dim
             
+            
+            Dynamics["A"].append(A)
             for i in range(num_player):
                 start_index, end_index = end_index, end_index+u_dims[i]
                 Dynamics["B"][i].append(jac[:, start_index:end_index])
             
             gradients = []
             hessians = []
-            cost_input = torch.cat([x_trajectory_prev[t], u_trajectory[t]])
+            cost_input = (x_trajectory_prev[t], u_trajectory[t])
             for i in range(num_player):
-                gradients.append(functional.jacobian(nl_game.cost_funcs[i], cost_input))
-                hessians.append(functional.hessian(nl_game.cost_funcs[i], cost_input))
+                r = functional.jacobian(nl_game.cost_funcs[i], cost_input)
+                gradients.append(torch.cat(r, dim=-1))
+                r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
+                hessians.append(r)
             
             Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
             for i in range(num_player):
-                r = torch.min(torch.linalg.eigvals(Q[i]))
+                r = torch.min(torch.linalg.eigvalsh(Q[i]))
                 if r <= 0.0:
                     Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
             
             for i in range(num_player):
                 Costs["Q"][i].append(Q[i])
                 Costs["l"][i].append(gradients[i][:x_dim])
-                start_index, end_index = 0, 2*x_dim
+                print(hessians[i].shape)
+                start_index, end_index = 0, x_dim
                 for j in range(num_player):
                     start_index, end_index = end_index, end_index+u_dims[j]
                     Costs["R"][i][j] = hessians[i][start_index:end_index, start_index:end_index]
             
         gradients = []
         hessians = []
-        cost_input = torch.cat([x_trajectory_prev[plan_steps], u_trajectory[plan_steps]])
+        cost_input = (x_trajectory_prev[plan_steps], u_trajectory[plan_steps-1])
         for i in range(num_player):
-            gradients.append(functional.jacobian(nl_game.cost_funcs[i], cost_input))
-            hessians.append(functional.hessian(nl_game.cost_funcs[i], cost_input))
+            r = torch.cat(functional.jacobian(nl_game.cost_funcs[i], cost_input), dim=-1)
+            gradients.append(r)
+            r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
+            hessians.append(r)
         Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
         for i in range(num_player):
-            r = torch.min(torch.linalg.eigvals(Q[i]))
+            r = torch.min(torch.linalg.eigvalsh(Q[i]))
             if r <= 0.0:
                 Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
         for i in range(num_player):
@@ -381,7 +411,7 @@ def dyn(state, action):
 
 
 
-x_init = torch.Tensor([[0,0,0,0],[1,1,0,0]])
+x_init = torch.Tensor([[0,0,0,0, 1,1,0,0]])
 
 x_dims = [4,4]
 x_dim = 8
@@ -394,8 +424,5 @@ dynamics_func = dyn
 
 sim_param = SimulationParams(100,-1,5)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
-
-
-
 
 generate_simulations(sim_param, nl_game, x_init, 2, 2)
