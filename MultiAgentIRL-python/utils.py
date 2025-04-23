@@ -141,7 +141,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
 
     As = [torch.tensor(a) for a in dynamic_dicts["A"]]
     
-    Bs = [torch.stack(b) for b in dynamic_dicts["B"]]
+    Bs = [torch.stack(b, dim=0) for b in dynamic_dicts["B"]]
     
     
     
@@ -150,7 +150,9 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     # for row in cost_dicts["R"]:
     #     for col in row:
     #         print(col)
-    Rs = cost_dicts["R"]
+    Rs = [[torch.stack(b, dim=0) for b in row] for row in cost_dicts["R"]]
+    print(cost_dicts["R"][0][0][0].shape)
+    print(Rs[0][0].shape)
     
     num_agents = len(Bs)
     
@@ -183,6 +185,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     sum_m = sum(m)
     
     for t in range(T-1, -1, -1):
+        print(t)
         Z_n = []
         for i in range(num_agents):
             Z_n.append(Zs[i][len(Zs[i])-1])
@@ -196,7 +199,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
                 start_j, end_j = end_j, end_j + m[i]
                 
                 if i == j:
-                    S[start:end, start_j:end_j] = Rs[i][i] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
+                    S[start:end, start_j:end_j] = Rs[i][i][t] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
                 else:
                     S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
         
@@ -205,12 +208,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         for i in range(num_agents):
             start, end = end, end + m[i]
             
-            print(sum_m, n)
-            print(Bs[i].T.shape)
-            print(Z_n[i].shape)
-            print(As[t].shape)
-            
-            YN[start:end] = Bs[i].T @ Z_n[i] @ As[t]
+            YN[start:end] = Bs[i][t].T @ Z_n[i] @ As[t]
         
         temp_P = torch.linalg.solve(S, YN)# temp_P = S\YN
         start, end = 0,0
@@ -230,12 +228,13 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         zeta_n = []
         
         for i in range(num_agents):
-            zeta_n.append(zetas[i][len(zetas[i]-1)])
+            zeta_n.append(zetas[i][len(zetas[i])-1])
         YA = torch.zeros((sum_m, 1))
         start, end = 0,0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            YA[start:end] = Bs[i][t].T @ zeta_n[i]
+            print(start, end, (Bs[i][t].T @ zeta_n[i]).shape)
+            YA[start:end, 0] = Bs[i][t].T @ zeta_n[i]
         
         # TODO
         # temp_alpha = S\YA
@@ -248,12 +247,14 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
             alpha.append(temp_alpha[start:end])
             alphas[i].append(alpha[i])
         
-        F = As[t] - torch.sum(Bs[i][t] @ P[i] for i in range(num_agents))
+        F = As[t] - torch.stack([Bs[i][t] @ P[i] for i in range(num_agents)]).sum(dim=0)
         Fs.append(F)
         
-        beta = - torch.sum(Bs[i][t] @ alpha[i] for i in range(num_agents))
+        beta = - torch.stack([Bs[i][t] @ alpha[i] for i in range(num_agents)]).sum(dim=0)
         zeta = []
         for i in range(num_agents):
+            for j in range(num_agents):
+                print(Rs[i][j].shape)
             zeta.append(F.T @ Z_n[i] @ beta + F.T @ zeta_n[i] + torch.stack([P[j].T @ Rs[i][j][t] @ alpha[j] for j in range(num_agents)]).sum(dim=0) + ls[i][t])
         
         for i in range(num_agents):
@@ -315,6 +316,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
             jac = functional.jacobian(nl_game.dynamics, (x_trajectory_prev[t], u_trajectory_prev[t]))
             jac = torch.cat(jac, dim=-1)
             
+            
             A = jac[:, :x_dim]
             start_index, end_index = 0,x_dim
             
@@ -342,11 +344,10 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
             for i in range(num_player):
                 Costs["Q"][i].append(Q[i])
                 Costs["l"][i].append(gradients[i][:x_dim])
-                print(hessians[i].shape)
                 start_index, end_index = 0, x_dim
                 for j in range(num_player):
                     start_index, end_index = end_index, end_index+u_dims[j]
-                    Costs["R"][i][j] = hessians[i][start_index:end_index, start_index:end_index]
+                    Costs["R"][i][j].append(hessians[i][start_index:end_index, start_index:end_index])
             
         gradients = []
         hessians = []
@@ -364,6 +365,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         for i in range(num_player):
             Costs["Q"][i].append(Q[i])
             Costs["l"][i].append(gradients[i][:x_dim])
+        
         
         
         N, alpha, cov = lqgame_QRE(Dynamics, Costs)
