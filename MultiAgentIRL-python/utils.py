@@ -71,7 +71,7 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
             u_dists = []
             for ip in range(num_players):
                 # TODO: clean this up
-                u_mean = -Nlist_all[ip][len(Nlist_all[ip])-1] * delta_x - alphalist_all[ip][len(alphalist_all[ip])-1]
+                u_mean = -Nlist_all[ip][len(Nlist_all[ip])-1] @ delta_x - alphalist_all[ip][len(alphalist_all[ip])-1]
                 # TODO: should the covariance be something like Symmetric(cov_all[ip][end])??
                 u_cov = torch.eye(2)
                 u_dist = torch.distributions.MultivariateNormal(u_mean, covariance_matrix=u_cov)
@@ -185,7 +185,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         zetas[i].append(ls[i][len(ls[i])-1])
     
     sum_m = sum(m)
-    print(sum_m)
+    # print(sum_m)
     
     for t in range(T-1, -1, -1):
         print(t)
@@ -232,12 +232,12 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         
         for i in range(num_agents):
             zeta_n.append(zetas[i][len(zetas[i])-1])
-        YA = torch.zeros((sum_m, 1))
+        YA = torch.zeros((sum_m,))
         start, end = 0,0
         for i in range(num_agents):
             start, end = end, end + m[i]
             print(start, end, (Bs[i][t].T @ zeta_n[i]).shape)
-            YA[start:end, 0] = Bs[i][t].T @ zeta_n[i]
+            YA[start:end] = Bs[i][t].T @ zeta_n[i]
         
         temp_alpha = torch.linalg.solve(S, YA)
         alpha = []
@@ -367,25 +367,28 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         
         
         N, alpha, cov = lqgame_QRE(Dynamics, Costs)
+        print(len(N), len(alpha), len(cov), N[0][0].shape, alpha[0][0].shape, cov[0][0].shape)
+        
         
         step_size = 1.0
         done = False
         while not done:
             u_trajectory = torch.zeros((plan_steps, u_dim))
-            x_trajectory = torch.zeros((plan_steps, x_dim))
+            x_trajectory = torch.zeros((plan_steps+1, x_dim))
             x_trajectory[0,:] = x_init
             for t in range(plan_steps):
                 delta_x = x_trajectory[t] - x_trajectory_prev[t]
                 
-                reverse_index = len(N[agent])-t-1
+                
                 
                 start_index = 0
                 end_index = 0
                 
                 
                 for agent in range(num_player):
+                    reverse_index = len(N[agent])-t-1
                     start_index,end_index = end_index,end_index+u_dims[agent]
-                    u_trajectory[t, start_index:end_index] = (-N[agent][reverse_index] * delta_x - alpha[agent][reverse_index] * step_size) + u_trajectory_prev[t,start_index:end_index]
+                    u_trajectory[t, start_index:end_index] = (-N[agent][reverse_index] @ delta_x - alpha[agent][reverse_index] * step_size) + u_trajectory_prev[t,start_index:end_index]
                 
                 x_trajectory[t+1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
             if torch.max(torch.abs(x_trajectory - x_trajectory_prev)) > 1.0:
@@ -411,7 +414,7 @@ def dyn(state, action):
 
 
 
-x_init = torch.Tensor([0,0,0,0, 1,1,0,0])
+x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0,0])
 
 x_dims = [4,4]
 x_dim = 8
