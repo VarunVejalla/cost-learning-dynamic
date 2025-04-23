@@ -15,7 +15,7 @@ class SimulationResults:
 
 class NonlinearGame:
     
-    def __init__(self, dynamics_func, cost_funcs, x_dims, x_dim, u_dims, u_dim, agent_to_functions, num_agents):
+    def __init__(self, dynamics_func, cost_funcs, x_dims, x_dim, u_dims, u_dim, num_agents):
         """_summary_
 
         Args:
@@ -25,7 +25,6 @@ class NonlinearGame:
             x_dim (_type_): _description_
             u_dims (_type_): _description_
             u_dim (_type_): _description_
-            agent_to_functions (_type_): _description_
             num_agents (_type_): _description_
         """
         self.dynamics = dynamics_func
@@ -35,8 +34,8 @@ class NonlinearGame:
         self.u_dims = u_dims
         self.u_dim = u_dim
         self.cost_funcs = cost_funcs
-        self.agent_to_functions = agent_to_functions
         self.num_agents = num_agents
+   
 
 def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor, num_sim:int, num_players:int):
     """_summary_
@@ -92,47 +91,166 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
     
     return SimulationResults(x_trajs, u_trajs), x_trajs_data, u_trajs_data
 
+# def lqgame_QRE(dynamic_dicts, cost_dicts):
+#     # TODO: John
+#     # from Varun: feel free to change the format of what these look like
+#     #               - solve_iLQGame is what writes to these dictionaries
+    
+#     A = dynamic_dicts["A"]
+#     B = dynamic_dicts["B"]
+#     Q = cost_dicts["Q"]
+#     l = cost_dicts["l"]
+#     R = cost_dicts["R"]
+    
+#     num_agents = len(B)
+    
+#     T = len(A)
+#     n = B[0][0].shape[0]
+    
+#     m = []
+#     for i in range(num_agents):
+#         if len(B[i][0].shape) == 1:
+#             m.append(1)
+#         else:
+#             m.append(B[i][0].shape[1])
+    
+#     P = [[] for _ in range(num_agents)]
+#     alpha = [[] for _ in range(num_agents)]
+#     cov = [[] for _ in range(num_agents)]
+    
+#     Z = [[] for _ in range(num_agents)]
+#     F = []
+#     zeta = [[] for _ in range(num_agents)]
+#     beta = []
+    
+#     for i in range(num_agents):
+#         Z[i].append(Q[[i][-1]])
+#         zeta[i].append(l[i][-1])
+    
+#     for t in range(T-1, -1, -1):
+#         # TODO
+#         continue
+    
+#     return P, alpha, cov
+
 def lqgame_QRE(dynamic_dicts, cost_dicts):
-    # TODO: John
-    # from Varun: feel free to change the format of what these look like
-    #               - solve_iLQGame is what writes to these dictionaries
+    # TODO: I have no idea how to test this, but I do believe
+    # that I implemented it pretty rigourously identical to the 
+    # paper it's definitions. If you would like me to explain 
+    # something let me know! - John
+
+    As = dynamic_dicts["A"]
+    Bs = dynamic_dicts["B"]
+    Qs = cost_dicts["Q"]
+    ls = cost_dicts["l"]
+    Rs = cost_dicts["R"]
     
-    A = dynamic_dicts["A"]
-    B = dynamic_dicts["B"]
-    Q = cost_dicts["Q"]
-    l = cost_dicts["l"]
-    R = cost_dicts["R"]
+    num_agents = len(Bs)
     
-    num_agents = len(B)
-    
-    T = len(A)
-    n = B[0][0].shape[0]
+    T = len(As)
+    n = Bs[0][0].shape[0]
     
     m = []
     for i in range(num_agents):
-        if len(B[i][0].shape) == 1:
+        if len(Bs[i][0].shape) == 1:
             m.append(1)
         else:
-            m.append(B[i][0].shape[1])
+            m.append(Bs[i][0].shape[1])
     
-    P = [[] for _ in range(num_agents)]
-    alpha = [[] for _ in range(num_agents)]
-    cov = [[] for _ in range(num_agents)]
+    Ps = [[] for _ in range(num_agents)]
+    alphas = [[] for _ in range(num_agents)]
+    covs = [[] for _ in range(num_agents)]
     
-    Z = [[] for _ in range(num_agents)]
-    F = []
-    zeta = [[] for _ in range(num_agents)]
-    beta = []
+    Zs = [[] for _ in range(num_agents)]
+    Fs = []
+    zetas = [[] for _ in range(num_agents)]
+    betas = []
     
+    # for doing the linear quadratic game backwards passes, 
+    # initialize the terminal state to the terminal costs and
+    # then begin to iterate backwards for T iterations
     for i in range(num_agents):
-        Z[i].append(Q[[i][-1]])
-        zeta[i].append(l[i][-1])
+        Zs[i].append(Qs[i][len(Qs[i])-1])
+        zetas[i].append(ls[i][len(ls[i])-1])
+    
+    sum_m = sum(m)
     
     for t in range(T-1, -1, -1):
+        Z_n = []
+        for i in range(num_agents):
+            Z_n.append(Zs[i][len(Zs[i])-1])
+        S = torch.zeros((sum_m,sum_m))
+        
+        start, end = 0,0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            start_j, end_j = 0,0
+            for j in range(num_agents):
+                start_j, end_j = end_j, end_j + m[i]
+                
+                if i == j:
+                    S[start:end, start_j:end_j] = Rs[i,i] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
+                else:
+                    S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
+        
+        YN = torch.zeros((sum_m, n))
+        start, end = 0,0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            YN[start:end] = Bs[i].T @ Z_n[i] @ As[t]
+        
+        temp_P = torch.linalg.solve(S, YN)# temp_P = S\YN
+        start, end = 0,0
+        P = []
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            P.append(temp_P[start:end])
+        
+        for i in range(num_agents):
+            Ps[i].append(P[i])
+        
+        start, end = 0,0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            covs[i].append(torch.linalg.inv(S[start:end, start:end]))
+        
+        zeta_n = []
+        
+        for i in range(num_agents):
+            zeta_n.append(zetas[i][len(zetas[i]-1)])
+        YA = torch.zeros((sum_m, 1))
+        start, end = 0,0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            YA[start:end] = Bs[i][t].T @ zeta_n[i]
+        
         # TODO
-        continue
-    
-    return P, alpha, cov
+        # temp_alpha = S\YA
+        temp_alpha = torch.linalg.solve(S, YA)
+        alpha = []
+        start, end = 0,0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            
+            alpha.append(temp_alpha[start:end])
+            alphas[i].append(alpha[i])
+        
+        F = As[t] - torch.sum(Bs[i][t] @ P[i] for i in range(num_agents))
+        Fs.append(F)
+        
+        beta = - torch.sum(Bs[i][t] @ alpha[i] for i in range(num_agents))
+        zeta = []
+        for i in range(num_agents):
+            zeta.append(F.T @ Z_n[i] @ beta + F.T @ zeta_n[i] + torch.stack([P[j].T @ Rs[i][j][t] @ alpha[j] for j in range(num_agents)]).sum(dim=0) + ls[i][t])
+        
+        for i in range(num_agents):
+            zetas[i].append(zeta[i])
+        Z = []
+        for i in range(num_agents):
+            Z.append(F.T @ Z_n[i] @ F + torch.stack([P[j].T @ Rs[i][j][t] @ P[j] for j in range(num_agents)]).sum(dim=0) + Qs[i][t])
+            Zs[i].append(Z[i])
+        
+    return Ps, alphas, covs
 
 def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor):
     # TODO: Varun
@@ -251,3 +369,33 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         u_trajectory_prev = u_trajectory
     
     return N, alpha, cov, x_trajectory_prev, u_trajectory_prev
+
+def cost_func_p1(state, action):
+    return torch.linalg.norm(state) + torch.linalg.norm(action)
+
+def cost_func_p2(state, action):
+    return torch.linalg.norm(state) + torch.linalg.norm(action)
+
+def dyn(state, action):
+    return state + torch.concat([action, action])
+
+
+
+x_init = torch.Tensor([[0,0,0,0],[1,1,0,0]])
+
+x_dims = [4,4]
+x_dim = 8
+
+u_dims = [2,2]
+u_dim = 4
+
+cost_funcs = [cost_func_p1, cost_func_p2]
+dynamics_func = dyn
+
+sim_param = SimulationParams(100,-1,5)
+nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
+
+
+
+
+generate_simulations(sim_param, nl_game, x_init, 2, 2)
