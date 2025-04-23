@@ -426,7 +426,7 @@ def cost_func_p1(state, action):
     return cost
 
 def dyn(state, action):
-    delta_time = 0.01
+    delta_time = 0.1
     
     pos0 = state[0:2]
     vel0 = state[2:4]

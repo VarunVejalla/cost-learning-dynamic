@@ -20,8 +20,8 @@ def get_feature_counts(x_trajectories, u_trajectories, cost_functions):
     
     print("in feature counts")
     
-    print(x_trajectories.shape)
-    print(u_trajectories.shape)
+    # print(x_trajectories.shape)
+    # print(u_trajectories.shape)
     
     
     num_trajectories = len(x_trajectories)
@@ -31,7 +31,7 @@ def get_feature_counts(x_trajectories, u_trajectories, cost_functions):
     for i in range(num_trajectories):
         xtraj = x_trajectories[i]
         utraj = u_trajectories[i]
-        steps = utraj.shape[0]-1
+        steps = utraj.shape[0]
         for t in range(steps+1):
             state = xtraj[t]
             
@@ -87,7 +87,7 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
     while num_iter < num_max_iter:
         # TODO: update gamma 
         
-        sim_param = SimulationParams(40,-1,10)
+        sim_param = SimulationParams(10,-1,10)
         nl_game = NonlinearGame(dynamics, current_cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
         
         results, x_data, u_data = generate_simulations(sim_param, nl_game, x_init, 10, 2)
@@ -162,21 +162,21 @@ x_init = torch.Tensor([1,1.1,0.1,0.1, 0,0,0.5,0.5])
 
 
 
-cost_funcs = [true_cost_p0, true_cost_p1]
+cost_funcs = [cost_func_p0, cost_func_p1]
 dynamics_func = dyn
 
-sim_param = SimulationParams(40,-1,10)
+sim_param = SimulationParams(10,-1,10)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
 dem_results, x_trajectories_data, u_trajectories_data = generate_simulations(sim_param,
                                        nl_game,
                                        x_init,
-                                       50, 2)
+                                       20, 2)
 
 x_trajectories = dem_results.x_trajs
 u_trajectories = dem_results.u_trajs
 
-print(x.shape, u.shape)
+# print(x.shape, u.shape)
 
 w = ma_irl(dynamics_func, [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], x_trajectories, u_trajectories, 10, [[0,1,2],[3,4,5]], 2)
 
