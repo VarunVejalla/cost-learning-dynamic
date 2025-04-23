@@ -73,14 +73,14 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
                 # TODO: clean this up
                 u_mean = -Nlist_all[ip][len(Nlist_all[ip])-1] @ delta_x - alphalist_all[ip][len(alphalist_all[ip])-1]
                 # TODO: should the covariance be something like Symmetric(cov_all[ip][end])??
-                u_cov = torch.eye(2)
+                
+                u_cov = torch.eye(nl_game.u_dims[ip])
                 u_dist = torch.distributions.MultivariateNormal(u_mean, covariance_matrix=u_cov)
                 u_dists.append(u_dist)
             control = []
             for u_dist in u_dists:
                 control.append(u_dist.sample())
-            control = torch.stack(control)
-            
+            control = torch.cat(control)
             u_history[t] = control + u_nominal[0]
             x_history[t+1] = nl_game.dynamics(x_history[t], u_history[t])
         
@@ -149,17 +149,10 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     ls = cost_dicts["l"]
     Rs = cost_dicts["R"]
     
-    print(As.shape)
-    print([b.shape for b in Bs])
-    print([q.shape for q in Qs])
-    print([l.shape for l in ls])
-    print([[r.shape for r in row] for row in Rs])
-    
     num_agents = len(Bs)
     
     T = len(As)
     n = Bs[0][0].shape[0]
-    print(n)
     
     m = []
     for i in range(num_agents):
@@ -167,7 +160,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
             m.append(1)
         else:
             m.append(Bs[i][0].shape[1])
-    print(m)
+
     Ps = [[] for _ in range(num_agents)]
     alphas = [[] for _ in range(num_agents)]
     covs = [[] for _ in range(num_agents)]
@@ -185,10 +178,8 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         zetas[i].append(ls[i][len(ls[i])-1])
     
     sum_m = sum(m)
-    # print(sum_m)
     
     for t in range(T-1, -1, -1):
-        print(t)
         Z_n = []
         for i in range(num_agents):
             Z_n.append(Zs[i][len(Zs[i])-1])
@@ -236,7 +227,6 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
         start, end = 0,0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            print(start, end, (Bs[i][t].T @ zeta_n[i]).shape)
             YA[start:end] = Bs[i][t].T @ zeta_n[i]
         
         temp_alpha = torch.linalg.solve(S, YA)
@@ -312,7 +302,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         for t in range(plan_steps):
             # dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
             # jac = functional.jacobian(nl_game.dynamics, dynamics_input)
-            jac = functional.jacobian(nl_game.dynamics, (x_trajectory_prev[t], u_trajectory_prev[t]))
+            jac = functional.jacobian(nl_game.dynamics, (x_trajectory_prev[t].detach().requires_grad_(), u_trajectory_prev[t].detach().requires_grad_()))
             jac = torch.cat(jac, dim=-1)
             
             
@@ -326,7 +316,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
             
             gradients = []
             hessians = []
-            cost_input = (x_trajectory_prev[t], u_trajectory[t])
+            cost_input = (x_trajectory_prev[t].detach().requires_grad_(), u_trajectory[t].detach().requires_grad_())
             for i in range(num_player):
                 r = functional.jacobian(nl_game.cost_funcs[i], cost_input)
                 gradients.append(torch.cat(r, dim=-1))
@@ -349,7 +339,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
             
         gradients = []
         hessians = []
-        cost_input = (x_trajectory_prev[plan_steps], u_trajectory[plan_steps-1])
+        cost_input = (x_trajectory_prev[plan_steps].detach().requires_grad_(), u_trajectory[plan_steps-1].detach().requires_grad_())
         for i in range(num_player):
             r = torch.cat(functional.jacobian(nl_game.cost_funcs[i], cost_input), dim=-1)
             gradients.append(r)
@@ -365,10 +355,7 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
             Costs["l"][i][plan_steps] = gradients[i][:x_dim]
         
         
-        
-        N, alpha, cov = lqgame_QRE(Dynamics, Costs)
-        print(len(N), len(alpha), len(cov), N[0][0].shape, alpha[0][0].shape, cov[0][0].shape)
-        
+        N, alpha, cov = lqgame_QRE(Dynamics, Costs)        
         
         step_size = 1.0
         done = False
@@ -403,18 +390,59 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
     
     return N, alpha, cov, x_trajectory_prev, u_trajectory_prev
 
-def cost_func_p1(state, action):
-    return torch.linalg.norm(state) + torch.linalg.norm(action)
+delta_time = 0.01
 
-def cost_func_p2(state, action):
-    return torch.linalg.norm(state) + torch.linalg.norm(action)
+def cost_func_p0(state, action):
+    pos_p0 = state[0:2]  # x0, y0
+    pos_p1 = state[4:6]  # x1, y1
+    act_p0 = action[0:2]  # ax0, ay0
+
+    goal_p0 = torch.tensor([1.0, 1.0], device=state.device, dtype=state.dtype)
+
+    dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
+    dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
+    eps = 1e-6
+    action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
+
+
+    cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
+    return cost
+
+def cost_func_p1(state, action):
+    pos_p0 = state[0:2]  # x0, y0
+    pos_p1 = state[4:6]  # x1, y1
+    act_p1 = action[2:4]  # ax1, ay1
+
+    goal_p1 = torch.tensor([2.0, 2.0], device=state.device, dtype=state.dtype)
+
+    dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
+    dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
+    eps = 1e-6
+    action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
+
+    cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
+    return cost
 
 def dyn(state, action):
-    return state + torch.concat([action, action])
+    pos0 = state[0:2]
+    vel0 = state[2:4]
+    pos1 = state[4:6]
+    vel1 = state[6:8]
+
+    acc0 = action[0:2]
+    acc1 = action[2:4]
+
+    new_pos0 = pos0 + vel0 * delta_time
+    new_vel0 = vel0 + acc0 * delta_time
+    new_pos1 = pos1 + vel1 * delta_time
+    new_vel1 = vel1 + acc1 * delta_time
+
+    return torch.cat([new_pos0, new_vel0, new_pos1, new_vel1])
 
 
 
-x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0,0])
+
+x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
 
 x_dims = [4,4]
 x_dim = 8
@@ -422,10 +450,12 @@ x_dim = 8
 u_dims = [2,2]
 u_dim = 4
 
-cost_funcs = [cost_func_p1, cost_func_p2]
+cost_funcs = [cost_func_p0, cost_func_p1]
 dynamics_func = dyn
 
-sim_param = SimulationParams(100,-1,5)
+sim_param = SimulationParams(40,-1,5)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
-generate_simulations(sim_param, nl_game, x_init, 2, 2)
+S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
+
+print(x)
