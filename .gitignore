@@ -3,6 +3,7 @@ venv/
 multi/
 *.swp
 .ipynb_checkpoints/
+__pycache__/
 MultiAgentIRL-main/plots/.ipynb_checkpoints/
 *.jld2
 
