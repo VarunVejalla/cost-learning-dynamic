@@ -429,47 +429,47 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
         
         N, alpha, cov = lqgame_QRE(Dynamics, Costs)        
 
-        for t in range(plan_steps):
-            # Create a figure with subplots for each agent
-            fig, axes = plt.subplots(num_player, 3, figsize=(15, 5 * num_player), squeeze=False)
-            fig.suptitle(f'Cost Matrices at Iteration {itr}, Step {t}, Optimizing {OPTIMIZE}', fontsize=16)
+        # for t in range(plan_steps):
+        #     # Create a figure with subplots for each agent
+        #     fig, axes = plt.subplots(num_player, 3, figsize=(15, 5 * num_player), squeeze=False)
+        #     fig.suptitle(f'Cost Matrices at Iteration {itr}, Step {t}, Optimizing {OPTIMIZE}', fontsize=16)
 
-            for i in range(num_player):
-                # Convert tensors to numpy for plotting
-                Q_i = Costs["Q"][i][t].detach().cpu().numpy()
-                l_i = Costs["l"][i][t].detach().cpu().numpy()
-                # For R, we'll plot R[i][i] (own control cost)
-                R_ii = Costs["R"][i][i][t].detach().cpu().numpy()
+        #     for i in range(num_player):
+        #         # Convert tensors to numpy for plotting
+        #         Q_i = Costs["Q"][i][t].detach().cpu().numpy()
+        #         l_i = Costs["l"][i][t].detach().cpu().numpy()
+        #         # For R, we'll plot R[i][i] (own control cost)
+        #         R_ii = Costs["R"][i][i][t].detach().cpu().numpy()
 
-                # Plot Q matrix (heatmap)
-                ax_Q = axes[i, 0]
-                im_Q = ax_Q.imshow(Q_i, cmap='viridis', interpolation='nearest')
-                ax_Q.set_title(f'Agent {i+1}: Q')
-                ax_Q.set_xlabel('State Dim')
-                ax_Q.set_ylabel('State Dim')
-                plt.colorbar(im_Q, ax=ax_Q)
+        #         # Plot Q matrix (heatmap)
+        #         ax_Q = axes[i, 0]
+        #         im_Q = ax_Q.imshow(Q_i, cmap='viridis', interpolation='nearest')
+        #         ax_Q.set_title(f'Agent {i+1}: Q')
+        #         ax_Q.set_xlabel('State Dim')
+        #         ax_Q.set_ylabel('State Dim')
+        #         plt.colorbar(im_Q, ax=ax_Q)
 
-                # Plot l vector (bar plot)
-                ax_l = axes[i, 1]
-                ax_l.bar(range(x_dim), l_i)
-                ax_l.set_title(f'Agent {i+1}: l')
-                ax_l.set_xlabel('State Dim')
-                ax_l.set_ylabel('Value')
-                ax_l.grid(True, alpha=0.3)
+        #         # Plot l vector (bar plot)
+        #         ax_l = axes[i, 1]
+        #         ax_l.bar(range(x_dim), l_i)
+        #         ax_l.set_title(f'Agent {i+1}: l')
+        #         ax_l.set_xlabel('State Dim')
+        #         ax_l.set_ylabel('Value')
+        #         ax_l.grid(True, alpha=0.3)
 
-                # Plot R matrix (heatmap)
-                ax_R = axes[i, 2]
-                im_R = ax_R.imshow(R_ii, cmap='viridis', interpolation='nearest')
-                ax_R.set_title(f'Agent {i+1}: R')
-                ax_R.set_xlabel('Control Dim')
-                ax_R.set_ylabel('Control Dim')
-                plt.colorbar(im_R, ax=ax_R)
+        #         # Plot R matrix (heatmap)
+        #         ax_R = axes[i, 2]
+        #         im_R = ax_R.imshow(R_ii, cmap='viridis', interpolation='nearest')
+        #         ax_R.set_title(f'Agent {i+1}: R')
+        #         ax_R.set_xlabel('Control Dim')
+        #         ax_R.set_ylabel('Control Dim')
+        #         plt.colorbar(im_R, ax=ax_R)
         
-            # Adjust layout and save
-            plt.tight_layout(rect=[0, 0, 1, 0.95])
-            # plt.savefig(os.path.join(output_dir, f'cost_matrices_iter_{t}.png'))
-            # plt.close(fig)
-            plt.show()
+        #     # Adjust layout and save
+        #     plt.tight_layout(rect=[0, 0, 1, 0.95])
+        #     # plt.savefig(os.path.join(output_dir, f'cost_matrices_iter_{t}.png'))
+        #     # plt.close(fig)
+        #     plt.show()
         
         step_size = 1.0
         done = False
