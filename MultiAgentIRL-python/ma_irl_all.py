@@ -1,9 +1,59 @@
+import os
 import numpy as np
+import torch
 
 from utils import *
 
+from nuscenes.nuscenes import NuScenes
+
+DATA = os.environ.get('DATA', '/data')
+# data_path = os.join(DATA, 'nuscenes')  # e.g. /data/nuscenes
+# version = 'v1.0-trainval'
+
+from nuscenes.utils.data_classes import LidarPointCloud
+from nuscenes.utils.geometry_utils import transform_matrix
+from nuscenes.map_expansion.map_api import NuScenesMap
+from pyquaternion import Quaternion
+from tqdm import tqdm
+
 state_dim = 4 # 2 for position, 2 for velocity
 action_dim = 2 # both acceleration
+
+def get_agent_trajectory(nusc, scene, agent_name="ego"):
+    sample_token = scene['first_sample_token']
+    x_states = []
+    times = []
+    
+    while sample_token:
+        sample = nusc.get('sample', sample_token)
+        ego_pose = nusc.get('ego_pose', sample['data']['LIDAR_TOP'])
+        cs_record = nusc.get('calibrated_sensor', nusc.get('sample_data', sample['data']['LIDAR_TOP'])['calibrated_sensor_token'])
+        
+        # Ego car position in world frame
+        pos = np.array(ego_pose['translation'][:2])
+        rot = Quaternion(ego_pose['rotation'])
+        
+        # Velocity approximation
+        if len(times) >= 2:
+            dt = (ego_pose['timestamp'] - times[-1]) / 1e6  # convert from microsec to sec
+            vel = (pos - x_states[-1][:2]) / dt
+        else:
+            vel = np.array([0., 0.])
+        
+        x_state = np.hstack((pos, vel))
+        x_states.append(x_state)
+        times.append(ego_pose['timestamp'])
+        
+        sample_token = sample['next']
+    
+    x_states = np.array(x_states)  # [T, 4]
+    times = np.array(times)
+    
+    # Approximate control inputs via finite difference on velocity
+    dt = np.diff(times) / 1e6
+    acc = np.diff(x_states[:, 2:4], axis=0) / dt[:, None]
+    
+    return x_states[:-1], acc, times[:-1]  # [T-1, 4], [T-1, 2], [T-1]
 
 def get_feature_counts(x_trajectories, u_trajectories, cost_functions):
     # TODO: should this accept as input reference trajectories?
@@ -158,9 +208,20 @@ def true_cost_p0(state, action):
 def true_cost_p1(state, action):
     return 1 * cost_func4(state, action) + 1.0 * cost_func5(state, action) + 1.0 * cost_func6(state, action)
 
+# nusc = NuScenes(version=version, dataroot=data_path, verbose=True)
+# 
+# interactive_keywords = ['merge', 'crosswalk', 'intersection', 'vehicle cut', 'yield', 'overtake']
+# 
+# interactive_scenes = [
+#     scene for scene in nusc.scene
+#     if any(kw in scene['name'].lower() or kw in scene['description'].lower()
+#            for kw in interactive_keywords)
+# ]
+# 
+# scene = interactive_scenes[0]
+# x_traj, u_traj, t_traj = get_agent_trajectory(nusc, scene)
+
 x_init = torch.Tensor([1,1.1,0.1,0.1, 0,0,0.5,0.5])
-
-
 
 cost_funcs = [cost_func_p0, cost_func_p1]
 dynamics_func = dyn
