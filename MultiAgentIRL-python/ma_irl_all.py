@@ -82,7 +82,7 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
     
     current_cost_funcs = []
     for i in range(num_agents):
-        current_cost_funcs.append(lambda state, action: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
+        current_cost_funcs.append(lambda state, action, i=i: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
     
     while num_iter < num_max_iter:
         # TODO: update gamma 
@@ -100,7 +100,7 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
         w -= (gamma * (avg_dem_feature_counts - avg_sim_feature_counts))
         current_cost_funcs = []
         for i in range(num_agents):
-            current_cost_funcs.append(lambda state, action: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
+            current_cost_funcs.append(lambda state, action, i=i: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
     
         num_iter += 1
         
