@@ -164,45 +164,99 @@ def true_cost_p1(state, action):
     # this agent will prioritize getting to destination
     return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
 
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+
+def plot_trajectory(x_trajectory):
+    agent1_pos = x_trajectory[:, 0:2]  # (T, 2)
+    agent2_pos = x_trajectory[:, 4:6]  # (T, 2)
+    T = agent1_pos.shape[0]
+    # Create frames for animation
+    frames = []
+    for t in range(T):
+        frames.append(go.Frame(
+            data=[
+                go.Scatter(x=agent1_pos[:t+1, 0], y=agent1_pos[:t+1, 1],
+                        mode="lines+markers", name="Agent 1",
+                        line=dict(color="blue")),
+                go.Scatter(x=agent2_pos[:t+1, 0], y=agent2_pos[:t+1, 1],
+                        mode="lines+markers", name="Agent 2",
+                        line=dict(color="red"))
+            ],
+            name=str(t)
+        ))
+
+    # Initial figure setup
+    fig = go.Figure(
+        data=[
+            go.Scatter(x=[agent1_pos[0, 0]], y=[agent1_pos[0, 1]],
+                    mode="markers+text", name="Agent 1", text=["Start"],
+                    marker=dict(color="blue", size=10)),
+            go.Scatter(x=[agent2_pos[0, 0]], y=[agent2_pos[0, 1]],
+                    mode="markers+text", name="Agent 2", text=["Start"],
+                    marker=dict(color="red", size=10)),
+        ],
+        layout=go.Layout(
+            xaxis=dict(range=[agent1_pos[:,0].min().item()-1, agent1_pos[:,0].max().item()+1]),
+            yaxis=dict(range=[agent1_pos[:,1].min().item()-1, agent1_pos[:,1].max().item()+1]),
+            updatemenus=[dict(
+                type="buttons", showactive=False,
+                buttons=[dict(label="Play", method="animate", args=[None])]
+            )],
+            sliders=[dict(
+                steps=[dict(method="animate", args=[[str(t)]], label=str(t)) for t in range(T)],
+                transition=dict(duration=0),
+                x=0.1, xanchor="left",
+                y=0, yanchor="top"
+            )]
+        ),
+        frames=frames
+    )
+
+    fig.show()
 
 
-cost_funcs = [cost_func_p0, cost_func_p1]
-dynamics_func = dyn
+# cost_funcs = [cost_func_p0, cost_func_p1]
+# dynamics_func = dyn
 
-num_sims = 100
-steps = 300
-plan_steps = 20
+# num_sims = 1
+# steps = 300
+# plan_steps = 20
 
-sim_param = SimulationParams(steps,-1,plan_steps)
-nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
-
-
+# sim_param = SimulationParams(steps,-1,plan_steps)
+# nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
 
-center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
-std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
-x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
 
-x_trajectories = []
-u_trajectories = []
-for i, x_init in enumerate(x_inits):
-    print(i, x_init)
 
-    dem_results, _, _ = generate_simulations(sim_param,
-                                        nl_game,
-                                        x_init,
-                                        1, 2)
+# center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
+# std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
+# x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
+
+# x_trajectories = []
+# u_trajectories = []
+# for i, x_init in enumerate(x_inits):
+#     print(i, x_init)
+
+#     dem_results, _, _ = generate_simulations(sim_param,
+#                                         nl_game,
+#                                         x_init,
+#                                         1, 2)
     
 
-    x_trajectories.append(dem_results.x_trajs[0])
-    u_trajectories.append(dem_results.u_trajs[0])
-    print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
+#     x_trajectories.append(dem_results.x_trajs[0])
+#     u_trajectories.append(dem_results.u_trajs[0])
+#     print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
     
-    with open("x_trajectories.pkl", "wb") as file:
-        pickle.dump(x_trajectories, file)
-    with open("u_trajectories.pkl", "wb") as file:
-        pickle.dump(u_trajectories, file)
-    
+#     with open("x_trajectories.pkl", "wb") as file:
+#         pickle.dump(x_trajectories, file)
+#     with open("u_trajectories.pkl", "wb") as file:
+#         pickle.dump(u_trajectories, file)
+
+with open("x_trajectories.pkl", "rb") as file:
+    x_trajectories = pickle.load(file)
+
+plot_trajectory(x_trajectories[-1])
 
 
 
