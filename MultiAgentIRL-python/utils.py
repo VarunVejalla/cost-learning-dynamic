@@ -66,6 +66,7 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
         u_history = torch.zeros((steps, u_dim))
         
         for t in range(steps):
+            print(t)
             Nlist_all, alphalist_all, cov_all, x_nominal, u_nominal = solve_iLQGame(sim_param=sim_param, nl_game=nl_game, x_init=x_history[t])
             delta_x = x_history[t] - x_nominal[0]
             u_dists = []
@@ -392,38 +393,38 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
 
 
 
-def cost_func_p0(state, action):
+# def cost_func_p0(state, action):
     
     
-    pos_p0 = state[0:2]  # x0, y0
-    pos_p1 = state[4:6]  # x1, y1
-    act_p0 = action[0:2]  # ax0, ay0
+#     pos_p0 = state[0:2]  # x0, y0
+#     pos_p1 = state[4:6]  # x1, y1
+#     act_p0 = action[0:2]  # ax0, ay0
 
-    goal_p0 = torch.tensor([1.0, 1.0], device=state.device, dtype=state.dtype)
+#     goal_p0 = torch.tensor([1.0, 1.0], device=state.device, dtype=state.dtype)
 
-    dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
-    dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
-    eps = 1e-6
-    action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
+#     dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
+#     dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
+#     eps = 1e-6
+#     action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
 
 
-    cost = 0.5 * dist_to_goal + 2.0 / (dist_to_other + 1e-6) + action_cost
-    return cost
+#     cost = 0.5 * dist_to_goal + 2.0 / (dist_to_other + 1e-6) + action_cost
+#     return cost
 
-def cost_func_p1(state, action):
-    pos_p0 = state[0:2]  # x0, y0
-    pos_p1 = state[4:6]  # x1, y1
-    act_p1 = action[2:4]  # ax1, ay1
+# def cost_func_p1(state, action):
+#     pos_p0 = state[0:2]  # x0, y0
+#     pos_p1 = state[4:6]  # x1, y1
+#     act_p1 = action[2:4]  # ax1, ay1
 
-    goal_p1 = torch.tensor([2.0, 2.0], device=state.device, dtype=state.dtype)
+#     goal_p1 = torch.tensor([2.0, 2.0], device=state.device, dtype=state.dtype)
 
-    dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
-    dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
-    eps = 1e-6
-    action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
+#     dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
+#     dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
+#     eps = 1e-6
+#     action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
 
-    cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
-    return cost
+#     cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
+#     return cost
 
 def dyn(state, action):
     delta_time = 0.1
@@ -444,21 +445,21 @@ def dyn(state, action):
     return torch.cat([new_pos0, new_vel0, new_pos1, new_vel1])
 
 
-if __name__ == "__main__":
-    x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
+# if __name__ == "__main__":
+#     x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
 
-    x_dims = [4,4]
-    x_dim = 8
+#     x_dims = [4,4]
+#     x_dim = 8
 
-    u_dims = [2,2]
-    u_dim = 4
+#     u_dims = [2,2]
+#     u_dim = 4
 
-    cost_funcs = [cost_func_p0, cost_func_p1]
-    dynamics_func = dyn
+#     cost_funcs = [cost_func_p0, cost_func_p1]
+#     dynamics_func = dyn
 
-    sim_param = SimulationParams(1,-1,20)
-    nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
+#     sim_param = SimulationParams(1,-1,20)
+#     nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
-    S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
+#     S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
 
-    print(x)
+#     print(x)

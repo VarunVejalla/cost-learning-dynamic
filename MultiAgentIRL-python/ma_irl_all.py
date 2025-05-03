@@ -111,7 +111,8 @@ def cost_func1(state, action):
     # how far first agent is from goal
     pos_p0 = state[0:2]  # x0, y0
     goal_p0 = torch.tensor([10.0, 0.0])
-    dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
+    
+    dist_to_goal = torch.sqrt(torch.linalg.norm(pos_p0 - goal_p0)**2 + 1e-3)
 
     return dist_to_goal
 
@@ -136,7 +137,7 @@ def cost_func3(state, action):
 def cost_func4(state, action):
     pos_p1 = state[4:6]  # x1, y1
     goal_p1 = torch.tensor([0.0, 10.0])
-    dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
+    dist_to_goal = torch.sqrt(torch.linalg.norm(pos_p1 - goal_p1) + 1e-3)
 
     return dist_to_goal
 
@@ -158,11 +159,11 @@ def cost_func6(state, action):
 
 
 def true_cost_p0(state, action):
-    # this agent will prioritize safety - being far from other agent and having low acceleration
-    return 0.5 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
+    # return 1.0 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
+    return 1.0 * cost_func1(state, action) + 0.8 * cost_func3(state, action)
 def true_cost_p1(state, action):
-    # this agent will prioritize getting to destination
-    return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
+    # return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
+    return 1.0 * cost_func4(state, action) + 0.4 * cost_func6(state, action)
 
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
@@ -216,45 +217,46 @@ def plot_trajectory(x_trajectory):
     fig.show()
 
 
-# cost_funcs = [cost_func_p0, cost_func_p1]
-# dynamics_func = dyn
+cost_funcs = [true_cost_p0, true_cost_p1]
+dynamics_func = dyn
 
-# num_sims = 1
-# steps = 300
-# plan_steps = 20
+num_sims = 1
+steps = 300
+plan_steps = 10
 
-# sim_param = SimulationParams(steps,-1,plan_steps)
-# nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
-
-
+sim_param = SimulationParams(steps,-1,plan_steps)
+nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
 
-# center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
+
+
+center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
 # std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
 # x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
+x_inits = [center for _ in range(num_sims)]
 
-# x_trajectories = []
-# u_trajectories = []
-# for i, x_init in enumerate(x_inits):
-#     print(i, x_init)
+x_trajectories = []
+u_trajectories = []
+for i, x_init in enumerate(x_inits):
+    print(i, x_init)
 
-#     dem_results, _, _ = generate_simulations(sim_param,
-#                                         nl_game,
-#                                         x_init,
-#                                         1, 2)
+    dem_results, _, _ = generate_simulations(sim_param,
+                                        nl_game,
+                                        x_init,
+                                        1, 2)
     
 
-#     x_trajectories.append(dem_results.x_trajs[0])
-#     u_trajectories.append(dem_results.u_trajs[0])
-#     print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
+    x_trajectories.append(dem_results.x_trajs[0])
+    u_trajectories.append(dem_results.u_trajs[0])
+    print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
     
-#     with open("x_trajectories.pkl", "wb") as file:
-#         pickle.dump(x_trajectories, file)
-#     with open("u_trajectories.pkl", "wb") as file:
-#         pickle.dump(u_trajectories, file)
+    with open("x_trajectories.pkl", "wb") as file:
+        pickle.dump(x_trajectories, file)
+    with open("u_trajectories.pkl", "wb") as file:
+        pickle.dump(u_trajectories, file)
 
-with open("x_trajectories.pkl", "rb") as file:
-    x_trajectories = pickle.load(file)
+# with open("x_trajectories.pkl", "rb") as file:
+#     x_trajectories = pickle.load(file)
 
 plot_trajectory(x_trajectories[-1])
 
