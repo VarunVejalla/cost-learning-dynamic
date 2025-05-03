@@ -1,6 +1,26 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+from scipy.interpolate import interp1d
+
+from nuscenes.nuscenes import NuScenes
+
+DATA = os.environ.get('DATA', '../../data')
+data_path = os.path.join(DATA, 'nuscenes')  # e.g. /data/nuscenes
+version = 'v1.0-trainval'
+
+from nuscenes.utils.data_classes import LidarPointCloud
+from nuscenes.utils.geometry_utils import transform_matrix
+from nuscenes.map_expansion.map_api import NuScenesMap
+from nuscenes.can_bus.can_bus_api import NuScenesCanBus
+from pyquaternion import Quaternion
+from tqdm import tqdm
+
+m = 4 # 2 for position, 2 for velocity
+# ks = (4, 8, 16, 32, 64) # number of cost functions 
+k = 16 # number of cost functions
 
 N = 2
 class CostNet(nn.Module):
@@ -124,26 +144,147 @@ def training_step(trajectory_batch, cost_net, dynamics_net, policy_net, cost_emb
 
     return total_loss
 
+def get_agents_trajectory(nusc, can_bus, scene):
+    # sample_token = scene['first_sample_token']
+    # x_states = []
+    # times = []
+    
+    # while sample_token:
+    #     sample = nusc.get('sample', sample_token)
+    #     ego_pose = nusc.get('ego_pose', sample['data']['LIDAR_TOP'])
+    #     cs_record = nusc.get('calibrated_sensor', nusc.get('sample_data', sample['data']['LIDAR_TOP'])['calibrated_sensor_token'])
+    #     
+    #     # Ego car position in world frame
+    #     pos = np.array(ego_pose['translation'][:2])
+    #     rot = Quaternion(ego_pose['rotation'])
+    #     
+    #     # Velocity approximation
+    #     if len(times) >= 2:
+    #         dt = (ego_pose['timestamp'] - times[-1]) / 1e6  # convert from microsec to sec vel = (pos - x_states[-1][:2]) / dt
+    #     else:
+    #         vel = np.array([0., 0.])
+    #     
+    #     x_state = np.hstack((pos, vel))
+    #     x_states.append(x_state)
+    #     times.append(ego_pose['timestamp'])
+    #     
+    #     sample_token = sample['next']
+    
+    # x_states = np.array(x_states)  # [T, 4]
+    # times = np.array(times)
+    
+    # # Approximate control inputs via finite difference on velocity
+    # dt = np.diff(times) / 1e6
+    # acc = np.diff(x_states[:, 2:4], axis=0) / dt[:, None]
+    
+    # return x_states[:-1], acc, times[:-1]  # [T-1, 4], [T-1, 2], [T-1]
 
-cost_net = CostNet()
-dynamics_net = DynamicsNet()
-cost_embeddings = nn.Parameter(torch.randn(N, k))
-policy_net = PolicyNet(state_dim=4, cost_dim=k, action_dim=m)
+    scene_name = scene['name']
+    data = []
 
-optimizer = torch.optim.Adam(list(cost_net.parameters()) +
-                             list(dynamics_net.parameters()) +
-                             list(policy_net.parameters()) +
-                             [cost_embeddings], lr=1e-3)
+    # Load CAN bus data for the scene
+    try:
+        can_data = can_bus.get_messages(scene_name, 'vehicle_monitor')
+        if not can_data:
+            print(f"No CAN bus data for {scene_name}, skipping.")
+        
+        # Extract timestamps and accelerations from CAN bus
+        can_timestamps = np.array([msg['utime'] for msg in can_data])  # Microseconds
+        can_acc = np.array([msg['acceleration'][:2] for msg in can_data])  # [ax, ay] in m/s²
+
+        # Create interpolation function for ax, ay
+        interp_ax = interp1d(can_timestamps, can_acc[:, 0], bounds_error=False, fill_value=0)
+        interp_ay = interp1d(can_timestamps, can_acc[:, 1], bounds_error=False, fill_value=0)
+        
+    except Exception as e:
+        print(f"Error loading CAN bus for {scene_name}: {e}, skipping.")
+    
+    # Iterate through samples in the scene
+    sample_token = scene['first_sample_token']
+    while sample_token:
+        sample = nusc.get('sample', sample_token)
+        sample_time = sample['timestamp']  # Microseconds
+        
+        # Get agent states: [xstate, ystate, vx, vy] for each agent
+        agent_states = []
+        for ann_token in sample['anns']:
+            ann = nusc.get('sample_annotation', ann_token)
+            # Extract position (x, y) and velocity (vx, vy)
+            xstate, ystate, _ = ann['translation']  # Ignore z
+            vx, vy = ann['velocity'][:2]  # 2D velocity (x, y)
+            if np.isnan(vx) or np.isnan(vy):  # Handle missing velocities
+                vx, vy = 0.0, 0.0
+            agent_states.append([xstate, ystate, vx, vy])
+        
+        # Convert to numpy array (num_agents x 4)
+        agent_states = np.array(agent_states) if agent_states else np.zeros((0, 4))
+        
+        # Get control input: [ax, ay] from interpolated CAN bus data
+        ax = float(interp_ax(sample_time))
+        ay = float(interp_ay(sample_time))
+        control = np.array([ax, ay])
+        
+        # Store data
+        data.append({
+            'scene_name': scene_name,
+            'sample_token': sample_token,
+            'timestamp': sample_time,
+            'agent_states': agent_states,  # Shape: (num_agents, 4)
+            'control': control  # Shape: (2,)
+        })
+        
+        # Move to next sample
+        sample_token = sample['next']
+
+    return data
 
 
-num_epochs = 100
+# cost_net = CostNet()
+# dynamics_net = DynamicsNet()
+# cost_embeddings = nn.Parameter(torch.randn(N, k))
+# policy_net = PolicyNet(state_dim=4, cost_dim=k, action_dim=m)
+# 
+# optimizer = torch.optim.Adam(list(cost_net.parameters()) +
+#                              list(dynamics_net.parameters()) +
+#                              list(policy_net.parameters()) +
+#                              [cost_embeddings], lr=1e-3)
+# 
+# 
+# num_epochs = 100
 
-# TODO
-# data = TODO
+num_agents = 2
+nusc = NuScenes(version=version, dataroot=data_path, verbose=True)
+can_bus = NuScenesCanBus(dataroot=data_path)
 
-for epoch in range(num_epochs):
-    for batch in data:
-        loss = training_step(batch, cost_net, dynamics_net, cost_embeddings)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+interactive_keywords = ['merge', 'crosswalk', 'intersection', 'vehicle cut', 'yield', 'overtake']
+
+interactive_scenes = []
+
+for scene in nusc.scene:
+    # Get first sample in the scene
+    first_sample_token = scene['first_sample_token']
+    sample = nusc.get('sample', first_sample_token)
+
+    # Count agents (vehicles and pedestrians) in the sample
+    agent_count = 0
+    for ann_token in sample['anns']:
+        ann = nusc.get('sample_annotation', ann_token)
+        category = ann['category_name']
+        if category.startswith('vehicle') or category.startswith('human.pedestrian'):
+            agent_count += 1
+    
+    if any(kw in scene['name'].lower() or kw in scene['description'].lower() for kw in interactive_keywords):
+        # Include scene if exactly num_agents agents
+        # if agent_count == num_agents:
+        interactive_scenes.append(scene)
+
+    x_traj, u_traj, t_traj = get_agents_trajectory(nusc, can_bus, scene)
+
+print(f"Found {len(interactive_scenes)} interactive scenes")
+
+# for epoch in range(num_epochs):
+#     for batch in data:
+#         loss = training_step(batch, cost_net, dynamics_net, cost_embeddings)
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
