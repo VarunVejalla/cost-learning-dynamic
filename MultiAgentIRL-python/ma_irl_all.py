@@ -1,4 +1,5 @@
 import numpy as np
+import pickle
 
 from utils import *
 
@@ -107,13 +108,15 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
     return w
 
 def cost_func1(state, action):
+    # how far first agent is from goal
     pos_p0 = state[0:2]  # x0, y0
-    goal_p0 = torch.tensor([1.0, 1.0])
+    goal_p0 = torch.tensor([10.0, 0.0])
     dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
 
     return dist_to_goal
 
 def cost_func2(state, action):
+    # how far first agent is from second agent
     pos_p0 = state[0:2]  # x0, y0
     pos_p1 = state[4:6]  # x1, y1
     dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
@@ -121,6 +124,7 @@ def cost_func2(state, action):
     return 1.0 / (dist_to_other + 1e-6)
 
 def cost_func3(state, action):
+    # total acceleration for this action
     if action is None:
         return 0
     act_p0 = action[0:2]  # ax0, ay0
@@ -131,7 +135,7 @@ def cost_func3(state, action):
 
 def cost_func4(state, action):
     pos_p1 = state[4:6]  # x1, y1
-    goal_p1 = torch.tensor([2.0, 2.0])
+    goal_p1 = torch.tensor([0.0, 10.0])
     dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
 
     return dist_to_goal
@@ -154,30 +158,56 @@ def cost_func6(state, action):
 
 
 def true_cost_p0(state, action):
-    return 0.5 * cost_func1(state, action) + 2.0 * cost_func2(state, action) + 1.0 * cost_func3(state, action)
+    # this agent will prioritize safety - being far from other agent and having low acceleration
+    return 0.5 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
 def true_cost_p1(state, action):
-    return 1 * cost_func4(state, action) + 1.0 * cost_func5(state, action) + 1.0 * cost_func6(state, action)
-
-x_init = torch.Tensor([1,1.1,0.1,0.1, 0,0,0.5,0.5])
+    # this agent will prioritize getting to destination
+    return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
 
 
 
 cost_funcs = [cost_func_p0, cost_func_p1]
 dynamics_func = dyn
 
-sim_param = SimulationParams(10,-1,10)
+num_sims = 100
+steps = 300
+plan_steps = 20
+
+sim_param = SimulationParams(steps,-1,plan_steps)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
-dem_results, x_trajectories_data, u_trajectories_data = generate_simulations(sim_param,
-                                       nl_game,
-                                       x_init,
-                                       20, 2)
 
-x_trajectories = dem_results.x_trajs
-u_trajectories = dem_results.u_trajs
+
+
+center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
+std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
+x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
+
+x_trajectories = []
+u_trajectories = []
+for i, x_init in enumerate(x_inits):
+    print(i, x_init)
+
+    dem_results, _, _ = generate_simulations(sim_param,
+                                        nl_game,
+                                        x_init,
+                                        1, 2)
+    
+
+    x_trajectories.append(dem_results.x_trajs[0])
+    u_trajectories.append(dem_results.u_trajs[0])
+    print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
+    
+    with open("x_trajectories.pkl", "wb") as file:
+        pickle.dump(x_trajectories, file)
+    with open("u_trajectories.pkl", "wb") as file:
+        pickle.dump(u_trajectories, file)
+    
+
+
 
 # print(x.shape, u.shape)
 
-w = ma_irl(dynamics_func, [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], x_trajectories, u_trajectories, 10, [[0,1,2],[3,4,5]], 2)
+# w = ma_irl(dynamics_func, [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], x_trajectories, u_trajectories, 10, [[0,1,2],[3,4,5]], 2)
 
-print(w)
+# print(w)
