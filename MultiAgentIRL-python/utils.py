@@ -209,7 +209,7 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
             start, end = end, end + m[i]
             start_j, end_j = 0,0
             for j in range(num_agents):
-                start_j, end_j = end_j, end_j + m[i]
+                start_j, end_j = end_j, end_j + m[j]
                 
                 if i == j:
                     S[start:end, start_j:end_j] = Rs[i][i][t] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
