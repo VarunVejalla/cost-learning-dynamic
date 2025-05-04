@@ -63,6 +63,117 @@ x_dim = 8
 u_dims = [2,2]
 u_dim = 4
 
+DT = 0.1
+
+A = torch.zeros(x_dim, x_dim)
+
+# Define the submatrix
+A_block = torch.tensor([
+    [1, 0, DT, 0],
+    [0, 1, 0, DT],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1]
+], dtype=torch.float32)
+
+# Assign to the top-left and bottom-right blocks of A
+A[0:x_dims[0], 0:x_dims[0]] = A_block
+A[x_dims[0]:, x_dims[0]:] = A_block
+
+# Control input matrix B1
+B1 = torch.zeros(x_dim, u_dims[0])
+B1_block = torch.tensor([
+    [0, 0],
+    [0, 0],
+    [DT, 0],
+    [0, DT]
+], dtype=torch.float32)
+B1[0:x_dims[0], :] = B1_block
+
+# Control input matrix B2
+B2 = torch.zeros(x_dim, u_dims[0])
+B2[x_dims[0]:, :] = B1_block  # same block reused
+
+def dynamics_forward(s):
+    state = s[0:x_dim]
+    ctrl1 = s[x_dim:x_dim + u_dims[0]]
+    ctrl2 = s[x_dim + u_dims[0]:]
+
+    return A @ state + B1 @ ctrl1 + B2 @ ctrl2
+
+def set_up_system(theta):
+    # Weight matrices for state costs (player 1)
+    w_state1 = torch.zeros(x_dim, x_dim)
+    w_state1[0:x_dims[0], 0:x_dims[0]] = (theta[0] + theta[1]) * torch.eye(x_dims[0])
+    w_state1[x_dims[0]:, 0:x_dims[0]] = theta[1] * torch.eye(x_dims[1], x_dims[0])
+    w_state1[0:x_dims[0], x_dims[0]:] = theta[1] * torch.eye(x_dims[0], x_dims[1])
+    w_state1[x_dims[0]:, x_dims[0]:] = (theta[0] + theta[1]) * torch.eye(x_dims[1])
+
+    # Control costs (player 1)
+    w_ctrl11 = theta[2] * torch.eye(u_dims[0])
+    w_ctrl12 = theta[3] * torch.eye(u_dims[1])
+
+    # Weight matrices for state costs (player 2)
+    w_state2 = torch.zeros(x_dim, x_dim)
+    w_state2[0:x_dims[0], 0:x_dims[0]] = (theta[4] + theta[5]) * torch.eye(x_dims[0])
+    w_state2[x_dims[0]:, 0:x_dims[0]] = theta[5] * torch.eye(x_dims[1], x_dims[0])
+    w_state2[0:x_dims[0], x_dims[0]:] = theta[5] * torch.eye(x_dims[0], x_dims[1])
+    w_state2[x_dims[0]:, x_dims[0]:] = (theta[4] + theta[5]) * torch.eye(x_dims[1])
+
+    # Control costs (player 2)
+    w_ctrl21 = theta[6] * torch.eye(u_dims[0])
+    w_ctrl22 = theta[7] * torch.eye(u_dims[1])
+
+    # Dynamics dictionary
+    Dynamics = {
+        "A": [A for _ in range(plan_steps)],
+        "B": [[B1 for _ in range(plan_steps)],
+                [B2 for _ in range(plan_steps)]]
+    }
+
+    # Costs dictionary
+    Costs = {
+        "Q": [[w_state1 for _ in range(plan_steps + 1)],
+             [w_state2 for _ in range(plan_steps + 1)]],
+        "l": [[torch.zeros(x_dim) for _ in range(plan_steps + 1)],
+            [torch.zeros(x_dim) for _ in range(plan_steps + 1)]],
+        "R":   [[[w_ctrl11 for _ in range(plan_steps)],
+[w_ctrl12 for _ in range(plan_steps)]],
+                [[w_ctrl21 for _ in range(plan_steps)],
+                 [w_ctrl22 for _ in range(plan_steps)]]]
+    }
+
+    return Dynamics, Costs
+
+
+def generate_sim(x_init, theta, plan_steps, state_dim, ctrl_dim, num_agents, num = 200):
+
+    x_trajectories, u_trajectories = [], []
+
+    # compute the Quantal response equilibrium
+    Dynamics, Costs = set_up_system(theta)
+    Ns, alphas, covs = lqgame_QRE(Dynamics, Costs)
+
+    # run simulations to get optimal equilibrium trajectories
+    for i in range(num):
+        x_history = torch.zeros((plan_steps+1, state_dim))
+        x_history[0,:] = x_init
+        u_history = torch.zeros((plan_steps, ctrl_dim))
+        for t in range(plan_steps):
+            
+            u_means = []
+            u_dists = []
+            for j in range(num_agents):
+                u_means.append(-Ns[j][-t-1] @ x_history[t, :] - alphas[j][-t-1])
+                u_dists.append(MultivariateNormal(u_means[j], covariance_matrix=covs[j][-t-1]))
+            
+            u_sample = torch.cat([dist.sample() for dist in u_dists])
+            u_history[t, :] = u_sample
+            x_input = torch.cat([x_history[t, :], u_sample])
+            x_history[t+1, :] = dynamics_forward(x_input)
+        x_trajectories.append(x_history)
+        u_trajectories.append(u_history)
+    return x_trajectories, u_trajectories
+
 def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_iter, agent_to_functions, num_agents):
     # x_trajectories shape = (num_trajectories, steps_in_trajectory+1, whole state_dim)
     # u_trajectories shape = (num_trajectories, steps_in_trajectory, whole action_dim)
@@ -222,7 +333,7 @@ dynamics_func = dyn
 
 num_sims = 1
 steps = 300
-plan_steps = 10
+plan_steps = 300
 
 sim_param = SimulationParams(steps,-1,plan_steps)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
@@ -231,32 +342,34 @@ nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
 
 center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
-# std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
-# x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
+# # std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
+# # x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
 x_inits = [center for _ in range(num_sims)]
 
-x_trajectories = []
-u_trajectories = []
-for i, x_init in enumerate(x_inits):
-    print(i, x_init)
+x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0]), 300, x_dim, u_dim, 2, 1)
 
-    dem_results, _, _ = generate_simulations(sim_param,
-                                        nl_game,
-                                        x_init,
-                                        1, 2)
+# x_trajectories = []
+# u_trajectories = []
+# for i, x_init in enumerate(x_inits):
+#     print(i, x_init)
+
+#     dem_results, _, _ = generate_simulations(sim_param,
+#                                         nl_game,
+#                                         x_init,
+#                                         1, 2)
     
 
-    x_trajectories.append(dem_results.x_trajs[0])
-    u_trajectories.append(dem_results.u_trajs[0])
-    print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
+#     x_trajectories.append(dem_results.x_trajs[0])
+#     u_trajectories.append(dem_results.u_trajs[0])
+#     print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
     
-    with open("x_trajectories.pkl", "wb") as file:
-        pickle.dump(x_trajectories, file)
-    with open("u_trajectories.pkl", "wb") as file:
-        pickle.dump(u_trajectories, file)
+#     with open("x_trajectories.pkl", "wb") as file:
+#         pickle.dump(x_trajectories, file)
+#     with open("u_trajectories.pkl", "wb") as file:
+#         pickle.dump(u_trajectories, file)
 
-# with open("x_trajectories.pkl", "rb") as file:
-#     x_trajectories = pickle.load(file)
+# # with open("x_trajectories.pkl", "rb") as file:
+# #     x_trajectories = pickle.load(file)
 
 plot_trajectory(x_trajectories[-1])
 

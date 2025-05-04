@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import torch.autograd.functional as functional
+from torch.distributions.multivariate_normal import MultivariateNormal
+
 
 class SimulationParams:
     def __init__(self, steps, horizon, plan_steps):
@@ -35,7 +37,7 @@ class NonlinearGame:
         self.u_dim = u_dim
         self.cost_funcs = cost_funcs
         self.num_agents = num_agents
-   
+
 
 def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor, num_sim:int, num_players:int):
     """_summary_
