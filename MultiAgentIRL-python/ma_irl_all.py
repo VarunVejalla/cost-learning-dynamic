@@ -335,7 +335,8 @@ def plot_trajectory(x_trajectory):
         frames=frames
     )
 
-    fig.write_html(f"trajectory_animation_{time.now()}.html")
+    # fig.write_html(f"trajectory_animation_{time.now()}.html")
+    fig.show()
 
 
 cost_funcs = [true_cost_p0, true_cost_p1]
@@ -343,7 +344,7 @@ dynamics_func = dyn
 
 num_sims = 1
 steps = 300
-plan_steps = 300
+plan_steps = 50
 
 sim_param = SimulationParams(steps,-1,plan_steps)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
@@ -363,25 +364,27 @@ goal_p1 = torch.tensor([0, 5])
 #           torch.tensor([0, -5, 0, 0, -5, 0, 0, 0])]
 # x_inits = [torch.tensor(agent1_init + [0,0] + agent2_init + [0,0]),
 #            torch.tensor(agent2_init + [0,0] + agent1_init + [0,0])]
-x_inits = [torch.tensor(agent1_init + [0,0] + agent2_init + [0,0]),
-           torch.tensor(agent2_init + [0,0] + agent1_init + [0,0])]
+x_inits = [torch.tensor(agent1_init + [0,0] + agent2_init + [0,0])]#,
+        #    torch.tensor(agent2_init + [0,0] + agent1_init + [0,0])]
 
 print("agent1_init:", agent1_init, "agent1_goal:", goal_p0)
 print("agent2_init:", agent2_init, "agent2_goal:", goal_p1)
 print("x_inits:", x_inits)
 
 
-x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0]), 300, x_dim, u_dim, 2, 1)
+# x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0]), 300, x_dim, u_dim, 2, 1)
 
-# x_trajectories = []
-# u_trajectories = []
-# for i, x_init in enumerate(x_inits):
-#     print(i, x_init)
+x_trajectories = []
+u_trajectories = []
+for i, x_init in enumerate(x_inits):
+    print(i, x_init)
 
-#     dem_results, _, _ = generate_simulations(sim_param,
-#                                         nl_game,
-#                                         x_init,
-#                                         1, 2)
+    # dem_results, _, _ = generate_simulations(sim_param,
+    #                                     nl_game,
+    #                                     x_init,
+    #                                     1, 2)
+    N, alpha, cov, x_trajectory_prev, u_trajectory_prev = solve_iLQGame(sim_param, nl_game, x_init)
+    x_trajectories.append(x_trajectory_prev)
     
 
 #     x_trajectories.append(dem_results.x_trajs[0])
@@ -396,7 +399,9 @@ x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0
 # # with open("x_trajectories.pkl", "rb") as file:
 # #     x_trajectories = pickle.load(file)
 
-plot_trajectory(x_trajectories[-1])
+print(x_trajectories[0].shape)
+
+plot_trajectory(x_trajectories[0])
 
 # print(x.shape, u.shape)
 
