@@ -3,7 +3,6 @@ import pickle
 import plotly.graph_objs as go
 from datetime import datetime as time
 from plotly.subplots import make_subplots
-
 from utils import *
 
 state_dim = 4 # 2 for position, 2 for velocity
@@ -148,7 +147,7 @@ def set_up_system(theta):
     return Dynamics, Costs
 
 
-def generate_sim(x_init, theta, plan_steps, state_dim, ctrl_dim, num_agents, num = 200):
+def generate_sim(x_init, theta, plan_steps, state_dim, ctrl_dim, num_agents, num = 100):
 
     x_trajectories, u_trajectories = [], []
 
@@ -162,7 +161,6 @@ def generate_sim(x_init, theta, plan_steps, state_dim, ctrl_dim, num_agents, num
         x_history[0,:] = x_init
         u_history = torch.zeros((plan_steps, ctrl_dim))
         for t in range(plan_steps):
-            
             u_means = []
             u_dists = []
             for j in range(num_agents):
@@ -187,25 +185,43 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
     # agent_to_functions is e.g. [[0,1,2,3],[4,5,6,7]]. First agent has functions 0,1,2,3.
     
     # output: for each num_trajectories, for each cost function, average value of cost_function
-    
+
+    steps=20
+    horizon=-1
+    plan_steps=10
+
     avg_dem_feature_counts, feature_counts = get_feature_counts(x_trajectories, u_trajectories, cost_functions)
     
     w = torch.rand(6)
-    x_init = torch.Tensor([1,1.1,0.1,0.1, 0,0,0.5,0.5])
+    # x_init = torch.Tensor([1,1.1,0.1,0.1, 0,0,0.5,0.5])
+    global x_inits
+    x_init = x_inits[0]
+    
     gamma = 0.01
     num_iter = 0
     
-    current_cost_funcs = []
+    current_cost_funcs = [] 
     for i in range(num_agents):
         current_cost_funcs.append(lambda state, action, i=i: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
     
     while num_iter < num_max_iter:
         # TODO: update gamma 
+        print("num_iter=", num_iter)
         
-        sim_param = SimulationParams(10,-1,10)
+        sim_param = SimulationParams(steps, horizon, plan_steps)
         nl_game = NonlinearGame(dynamics, current_cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
         
-        results, x_data, u_data = generate_simulations(sim_param, nl_game, x_init, 10, 2)
+        x_ref = torch.zeros((steps*2, x_dim))
+        x_ref[1,:] = x_init
+        for i in range(1, steps*2 - 1):
+            x_ref[i+1] = dynamics(x_ref[i], torch.zeros(u_dim))
+
+        results, x_data, u_data = generate_simulations(sim_param, 
+                                                       nl_game, 
+                                                       x_init, 
+                                                       x_ref,
+                                                       10, 
+                                                       2)
         x_trajectories_sim = results.x_trajs
         u_trajectories_sim = results.u_trajs
         
@@ -216,9 +232,13 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
         current_cost_funcs = []
         for i in range(num_agents):
             current_cost_funcs.append(lambda state, action, i=i: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
-    
-        num_iter += 1
+
+        if num_iter in [1, 3, 7, 10, 20, 35, 50]:
+            print("x_trajectories_sim= ", x_trajectories_sim)
+            plot_trajectory(x_trajectories_sim[-1], num_iter)
         
+        num_iter += 1
+
     return w
 
 def cost_func1(state, action):
@@ -229,6 +249,7 @@ def cost_func1(state, action):
     diff = pos_p0 - goal_p0
     dist_to_goal = torch.sqrt(torch.linalg.norm(diff)**2 + 1e-3)
     # dist_to_goal = torch.abs(torch.linalg.norm(diff))
+    # dist_to_goal = torch.sum(diff ** 2)  # Quadratic cost
 
     return dist_to_goal
 
@@ -238,8 +259,8 @@ def cost_func2(state, action):
     pos_p1 = state[4:6]  # x1, y1
     dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
     # dist_to_other = torch.abs(torch.linalg.norm(pos_p0 - pos_p1))
-
     return 1.0 / (dist_to_other + 1e-6)
+    # return 1 / torch.log(dist_to_other + 1e-6)
 
 def cost_func3(state, action):
     # total acceleration for this action
@@ -248,7 +269,7 @@ def cost_func3(state, action):
     act_p0 = action[0:2]  # ax0, ay0
     eps = 1e-6
     action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
-    # action_cost = (torch.sum(act_p0**2) + eps)
+    # action_cost = (torch.sum(act_p0**2)) #  + eps
 
     return action_cost
 
@@ -259,16 +280,17 @@ def cost_func4(state, action):
     diff = pos_p1 - goal_p1
     dist_to_goal = torch.sqrt(torch.linalg.norm(diff)**2 + 1e-3)
     # dist_to_goal = torch.abs(torch.linalg.norm(diff))
-
     return dist_to_goal
+    # return torch.sum(diff ** 2)  # Quadratic cost 
+
 
 def cost_func5(state, action):
     pos_p0 = state[0:2]  # x0, y0
     pos_p1 = state[4:6]  # x1, y1
     dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
     # dist_to_other = torch.abs(torch.linalg.norm(pos_p1 - pos_p0))
-
     return 1.0 / (dist_to_other + 1e-6)
+    # return 1.0 / torch.log(dist_to_other + 1e-6)
 
 def cost_func6(state, action):
     if action is None:
@@ -277,16 +299,17 @@ def cost_func6(state, action):
     eps = 1e-6
     action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
     # action_cost = torch.sqrt(torch.sum(act_p1**2) + eps)
+    # action_cost = (torch.sum(act_p1**2))# + eps)
 
     return action_cost
 
 
 def true_cost_p0(state, action):
-    # return 1.0 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
-    return 1.0 * cost_func1(state, action) + 0.8 * cost_func3(state, action)
+    return 1.0 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
+    # return 1.0 * cost_func1(state, action) + 0.8 * cost_func3(state, action)
 def true_cost_p1(state, action):
-    # return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
-    return 1.0 * cost_func4(state, action) + 0.4 * cost_func6(state, action)
+    return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
+    # return 1.0 * cost_func4(state, action) + 0.4 * cost_func6(state, action)
 
 
 def plot_trajectory(x_trajectory):
@@ -335,8 +358,8 @@ def plot_trajectory(x_trajectory):
         frames=frames
     )
 
-    fig.write_html(f"trajectory_animation_{time.now()}.html")
-
+    # fig.write_html(f"trajectory_animation_{time.now()}.html")
+    fig.show()
 
 cost_funcs = [true_cost_p0, true_cost_p1]
 dynamics_func = dyn
@@ -371,35 +394,48 @@ print("agent2_init:", agent2_init, "agent2_goal:", goal_p1)
 print("x_inits:", x_inits)
 
 
-x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0]), 300, x_dim, u_dim, 2, 1)
+theta_true = torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0])
+x_trajectories, u_trajectories = generate_sim(x_inits[0], 
+                                              theta_true, # torch.tensor([5.0, 1.0, 2.0, 1.0, 5.0, 1.0, 1.0, 2.0]),
+                                              100, 
+                                              x_dim, 
+                                              u_dim, 
+                                              2, 
+                                              1)
 
 # x_trajectories = []
 # u_trajectories = []
 # for i, x_init in enumerate(x_inits):
 #     print(i, x_init)
-
+# 
 #     dem_results, _, _ = generate_simulations(sim_param,
 #                                         nl_game,
 #                                         x_init,
 #                                         1, 2)
-    
-
+#   
+# 
 #     x_trajectories.append(dem_results.x_trajs[0])
 #     u_trajectories.append(dem_results.u_trajs[0])
 #     print(dem_results.x_trajs[0])#, dem_results.u_trajs[0])
-    
+#   
 #     with open("x_trajectories.pkl", "wb") as file:
 #         pickle.dump(x_trajectories, file)
 #     with open("u_trajectories.pkl", "wb") as file:
 #         pickle.dump(u_trajectories, file)
-
-# # with open("x_trajectories.pkl", "rb") as file:
-# #     x_trajectories = pickle.load(file)
+# 
+# with open("x_trajectories.pkl", "rb") as file:
+#     x_trajectories = pickle.load(file)
 
 plot_trajectory(x_trajectories[-1])
 
 # print(x.shape, u.shape)
 
-# w = ma_irl(dynamics_func, [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], x_trajectories, u_trajectories, 10, [[0,1,2],[3,4,5]], 2)
+w = ma_irl(dynamics_func, 
+           [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], 
+           x_trajectories, 
+           u_trajectories, 
+           10, 
+           [[0,1,2],[3,4,5]], 
+           2)
 
 # print(w)
