@@ -139,7 +139,7 @@ def set_up_system(theta):
         "l": [[torch.zeros(x_dim) for _ in range(plan_steps + 1)],
             [torch.zeros(x_dim) for _ in range(plan_steps + 1)]],
         "R":   [[[w_ctrl11 for _ in range(plan_steps)],
-[w_ctrl12 for _ in range(plan_steps)]],
+                 [w_ctrl12 for _ in range(plan_steps)]],
                 [[w_ctrl21 for _ in range(plan_steps)],
                  [w_ctrl22 for _ in range(plan_steps)]]]
     }

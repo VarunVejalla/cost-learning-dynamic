@@ -156,26 +156,26 @@ def generate_simulations(sim_param:SimulationParams,
 #     return P, alpha, cov
 
 def lqgame_QRE(dynamic_dicts, cost_dicts):
-    # TODO: I have no idea how to test this, but I do believe
-    # that I implemented it pretty rigourously identical to the 
-    # paper it's definitions. If you would like me to explain 
-    # something let me know! - John
+    """
+    Compute the Quantal Response Equilibrium (QRE) for a Linear Quadratic Gaussian game.
 
+    Args:
+        dynamic_dicts: Dictionary with keys "A" (shape: T, n, n) and "B" (list of [T, n, m_i]).
+        cost_dicts: Dictionary with keys "Q" (list of [T+1, n, n]), "l" (list of [T+1, n]),
+                   and "R" (list of lists [[T, m_i, m_j]]).
+
+    Returns:
+        tuple: (Ps, alphas, covs) where Ps[i][t] is P_t^i, alphas[i][t] is alpha_t^i, and covs[i][t] is Sigma_t^i.
+    """
     As = dynamic_dicts["A"]
-    
     Bs = dynamic_dicts["B"]
-    
-    
-    
     Qs = cost_dicts["Q"]
     ls = cost_dicts["l"]
     Rs = cost_dicts["R"]
-    
+
     num_agents = len(Bs)
-    
     T = len(As)
     n = Bs[0][0].shape[0]
-    
     m = []
     for i in range(num_agents):
         if len(Bs[i][0].shape) == 1:
@@ -186,95 +186,113 @@ def lqgame_QRE(dynamic_dicts, cost_dicts):
     Ps = [[] for _ in range(num_agents)]
     alphas = [[] for _ in range(num_agents)]
     covs = [[] for _ in range(num_agents)]
-    
     Zs = [[] for _ in range(num_agents)]
-    Fs = []
     zetas = [[] for _ in range(num_agents)]
-    betas = []
-    
-    # for doing the linear quadratic game backwards passes, 
-    # initialize the terminal state to the terminal costs and
-    # then begin to iterate backwards for T iterations
+
+    # Terminal conditions
     for i in range(num_agents):
-        Zs[i].append(Qs[i][len(Qs[i])-1])
-        zetas[i].append(ls[i][len(ls[i])-1])
-    
+        Zs[i].append(Qs[i][len(Qs[i])-1])    # Z_T^i = Q_T^i
+        zetas[i].append(ls[i][len(ls[i])-1])  # zeta_T^i = l_T^i
+
     sum_m = sum(m)
-    
+
     for t in range(T-1, -1, -1):
-        Z_n = []
-        for i in range(num_agents):
-            Z_n.append(Zs[i][len(Zs[i])-1])
-        S = torch.zeros((sum_m,sum_m))
-        
-        start, end = 0,0
+        Z_n = [Zs[i][-1] for i in range(num_agents)]  # Z_{t+1}^i
+        zeta_n = [zetas[i][-1] for i in range(num_agents)]  # zeta_{t+1}^i
+
+        # Compute S matrix
+        S = torch.zeros((sum_m, sum_m), device=As[t].device)
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            start_j, end_j = 0,0
+            start_j, end_j = 0, 0
             for j in range(num_agents):
-                start_j, end_j = end_j, end_j + m[i]
-                
+                start_j, end_j = end_j, end_j + m[j]  # Fixed: Use m[j]
+                S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
                 if i == j:
-                    S[start:end, start_j:end_j] = Rs[i][i][t] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
-                else:
-                    S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
-        
-        YN = torch.zeros((sum_m, n))
-        start, end = 0,0
+                    S[start:end, start_j:end_j] += Rs[i][i][t]
+        S += 1e-4 * torch.eye(sum_m, device=S.device)  # Regularization
+
+        # Compute P_t^i (Equation 26)
+        YN = torch.zeros((sum_m, n), device=As[t].device)
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            
-            YN[start:end] = Bs[i][t].T @ Z_n[i] @ As[t]
-        
-        temp_P = torch.linalg.solve(S, YN)# temp_P = S\YN
-        start, end = 0,0
+            YN[start:end] = -2 * Bs[i][t].T @ Z_n[i] @ As[t]  # Fixed: -2 factor
+
+        temp_P = torch.linalg.solve(S, YN)
         P = []
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
             P.append(temp_P[start:end])
-        
-        for i in range(num_agents):
             Ps[i].append(P[i])
-        
-        start, end = 0,0
+
+        # Compute Sigma_t^i (Equation 25)
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
             covs[i].append(torch.linalg.inv(S[start:end, start:end]))
-        
-        zeta_n = []
-        
-        for i in range(num_agents):
-            zeta_n.append(zetas[i][len(zetas[i])-1])
-        YA = torch.zeros((sum_m,))
-        start, end = 0,0
+
+        # Preliminary alpha_t^i without beta
+        YA_prelim = torch.zeros((sum_m,), device=As[t].device)
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            YA[start:end] = Bs[i][t].T @ zeta_n[i]
-        
+            YA_prelim[start:end] = -Bs[i][t].T @ zeta_n[i]
+
+        temp_alpha = torch.linalg.solve(S, YA_prelim)
+        alpha_prelim = []
+        start, end = 0, 0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            alpha_prelim.append(temp_alpha[start:end])
+
+        # Compute F_t and beta_t (Equations 30 and 31)
+        F = As[t] - torch.stack([Bs[i][t] @ P[i] for i in range(num_agents)]).sum(dim=0)
+        beta = -torch.stack([Bs[i][t] @ alpha_prelim[i] for i in range(num_agents)]).sum(dim=0)
+
+        # Recompute alpha_t^i with beta (Equation 27)
+        YA = torch.zeros((sum_m,), device=As[t].device)
+        start, end = 0, 0
+        for i in range(num_agents):
+            start, end = end, end + m[i]
+            YA[start:end] = -(Bs[i][t].T @ Z_n[i] @ beta + Bs[i][t].T @ zeta_n[i])
+
         temp_alpha = torch.linalg.solve(S, YA)
         alpha = []
-        start, end = 0,0
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            
             alpha.append(temp_alpha[start:end])
             alphas[i].append(alpha[i])
-        
-        F = As[t] - torch.stack([Bs[i][t] @ P[i] for i in range(num_agents)]).sum(dim=0)
-        Fs.append(F)
-        
-        beta = - torch.stack([Bs[i][t] @ alpha[i] for i in range(num_agents)]).sum(dim=0)
+
+        # Compute zeta_t^i (Equation 29)
         zeta = []
         for i in range(num_agents):
-            zeta.append(F.T @ Z_n[i] @ beta + F.T @ zeta_n[i] + torch.stack([P[j].T @ Rs[i][j][t] @ alpha[j] for j in range(num_agents)]).sum(dim=0) + ls[i][t])
-        
-        for i in range(num_agents):
+            zeta.append(
+                F.T @ Z_n[i] @ beta +
+                F.T @ zeta_n[i] +
+                torch.stack([P[j].T @ Rs[i][j][t] @ alpha[j] for j in range(num_agents)]).sum(dim=0) +
+                ls[i][t]
+            )
             zetas[i].append(zeta[i])
+
+        # Compute Z_t^i (Equation 28)
         Z = []
         for i in range(num_agents):
-            Z.append(F.T @ Z_n[i] @ F + torch.stack([P[j].T @ Rs[i][j][t] @ P[j] for j in range(num_agents)]).sum(dim=0) + Qs[i][t])
+            Z.append(
+                F.T @ Z_n[i] @ F +
+                torch.stack([P[j].T @ Rs[i][j][t] @ P[j] for j in range(num_agents)]).sum(dim=0) +
+                Qs[i][t]
+            )
             Zs[i].append(Z[i])
-        
+
+    # Reverse lists to match forward time indexing
+    Ps = [list(reversed(P)) for P in Ps]
+    alphas = [list(reversed(a)) for a in alphas]
+    covs = [list(reversed(c)) for c in covs]
+
     return Ps, alphas, covs
 
 def combine_hessian_blocks(hessian_blocks):
