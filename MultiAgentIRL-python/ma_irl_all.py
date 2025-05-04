@@ -1,5 +1,8 @@
 import numpy as np
 import pickle
+import plotly.graph_objs as go
+from datetime import datetime as time
+from plotly.subplots import make_subplots
 
 from utils import *
 
@@ -221,9 +224,11 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
 def cost_func1(state, action):
     # how far first agent is from goal
     pos_p0 = state[0:2]  # x0, y0
-    goal_p0 = torch.tensor([10.0, 0.0])
+    global goal_p0
     
-    dist_to_goal = torch.sqrt(torch.linalg.norm(pos_p0 - goal_p0)**2 + 1e-3)
+    diff = pos_p0 - goal_p0
+    dist_to_goal = torch.sqrt(torch.linalg.norm(diff)**2 + 1e-3)
+    # dist_to_goal = torch.abs(torch.linalg.norm(diff))
 
     return dist_to_goal
 
@@ -232,6 +237,7 @@ def cost_func2(state, action):
     pos_p0 = state[0:2]  # x0, y0
     pos_p1 = state[4:6]  # x1, y1
     dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
+    # dist_to_other = torch.abs(torch.linalg.norm(pos_p0 - pos_p1))
 
     return 1.0 / (dist_to_other + 1e-6)
 
@@ -242,13 +248,17 @@ def cost_func3(state, action):
     act_p0 = action[0:2]  # ax0, ay0
     eps = 1e-6
     action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
+    # action_cost = (torch.sum(act_p0**2) + eps)
 
     return action_cost
 
 def cost_func4(state, action):
     pos_p1 = state[4:6]  # x1, y1
-    goal_p1 = torch.tensor([0.0, 10.0])
-    dist_to_goal = torch.sqrt(torch.linalg.norm(pos_p1 - goal_p1) + 1e-3)
+    global goal_p1
+
+    diff = pos_p1 - goal_p1
+    dist_to_goal = torch.sqrt(torch.linalg.norm(diff)**2 + 1e-3)
+    # dist_to_goal = torch.abs(torch.linalg.norm(diff))
 
     return dist_to_goal
 
@@ -256,6 +266,7 @@ def cost_func5(state, action):
     pos_p0 = state[0:2]  # x0, y0
     pos_p1 = state[4:6]  # x1, y1
     dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
+    # dist_to_other = torch.abs(torch.linalg.norm(pos_p1 - pos_p0))
 
     return 1.0 / (dist_to_other + 1e-6)
 
@@ -265,6 +276,7 @@ def cost_func6(state, action):
     act_p1 = action[2:4]  # ax1, ay1
     eps = 1e-6
     action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
+    # action_cost = torch.sqrt(torch.sum(act_p1**2) + eps)
 
     return action_cost
 
@@ -276,8 +288,6 @@ def true_cost_p1(state, action):
     # return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
     return 1.0 * cost_func4(state, action) + 0.4 * cost_func6(state, action)
 
-import plotly.graph_objs as go
-from plotly.subplots import make_subplots
 
 def plot_trajectory(x_trajectory):
     agent1_pos = x_trajectory[:, 0:2]  # (T, 2)
@@ -309,8 +319,8 @@ def plot_trajectory(x_trajectory):
                     marker=dict(color="red", size=10)),
         ],
         layout=go.Layout(
-            xaxis=dict(range=[agent1_pos[:,0].min().item()-1, agent1_pos[:,0].max().item()+1]),
-            yaxis=dict(range=[agent1_pos[:,1].min().item()-1, agent1_pos[:,1].max().item()+1]),
+            xaxis=dict(range=[min(agent1_pos[:,0].min().item()-1, agent2_pos[:,0].min().item()-1), max(agent1_pos[:,0].max().item()+1, agent2_pos[:,0].max().item()+1)]),
+            yaxis=dict(range=[min(agent1_pos[:,1].min().item()-1, agent2_pos[:,1].min().item()-1), max(agent1_pos[:,1].max().item()+1, agent2_pos[:,1].max().item()+1)]),
             updatemenus=[dict(
                 type="buttons", showactive=False,
                 buttons=[dict(label="Play", method="animate", args=[None])]
@@ -325,7 +335,7 @@ def plot_trajectory(x_trajectory):
         frames=frames
     )
 
-    fig.show()
+    fig.write_html(f"trajectory_animation_{time.now()}.html")
 
 
 cost_funcs = [true_cost_p0, true_cost_p1]
@@ -338,13 +348,28 @@ plan_steps = 300
 sim_param = SimulationParams(steps,-1,plan_steps)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
+# Intersection of agents
+agent1_init = [-5, 0]
+agent2_init = [0, -5]
+#agent1_goal = [5, 0] 
+goal_p0 = torch.tensor([5, 0])
+# agent2_goal = [0, 5]
+goal_p1 = torch.tensor([0, 5])
+# center = torch.tensor([-10, 0, 0, 0, -10, 0, 0, 0])
+# std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
+# x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
+# x_inits = [center for _ in range(num_sims)]
+# x_inits = [torch.tensor([-5, 0, 0, 0, 0, -5, 0, 0]),
+#           torch.tensor([0, -5, 0, 0, -5, 0, 0, 0])]
+# x_inits = [torch.tensor(agent1_init + [0,0] + agent2_init + [0,0]),
+#            torch.tensor(agent2_init + [0,0] + agent1_init + [0,0])]
+x_inits = [torch.tensor(agent1_init + [0,0] + agent2_init + [0,0]),
+           torch.tensor(agent2_init + [0,0] + agent1_init + [0,0])]
 
+print("agent1_init:", agent1_init, "agent1_goal:", goal_p0)
+print("agent2_init:", agent2_init, "agent2_goal:", goal_p1)
+print("x_inits:", x_inits)
 
-
-center = torch.tensor([-10, 0, 0, 0, 0, -10, 0, 0])
-# # std_devs = torch.tensor([2, 2, 1, 1, 2, 2, 1, 1]).sqrt()
-# # x_inits = [center + std_devs * torch.randn(8) for _ in range(num_sims)]
-x_inits = [center for _ in range(num_sims)]
 
 x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0]), 300, x_dim, u_dim, 2, 1)
 
@@ -372,8 +397,6 @@ x_trajectories, u_trajectories = generate_sim(x_inits[0], torch.tensor([5.0, 1.0
 # #     x_trajectories = pickle.load(file)
 
 plot_trajectory(x_trajectories[-1])
-
-
 
 # print(x.shape, u.shape)
 
