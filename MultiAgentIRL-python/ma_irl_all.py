@@ -65,7 +65,7 @@ x_dim = 8
 u_dims = [2,2]
 u_dim = 4
 
-DT = 0.1
+DT = 0.5
 
 A = torch.zeros(x_dim, x_dim)
 
@@ -305,10 +305,10 @@ def cost_func6(state, action):
 
 
 def true_cost_p0(state, action):
-    return 1.0 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
+    return 1.0 * cost_func1(state, action) + 0.0 * cost_func2(state, action) + 0.5 * cost_func3(state, action)
     # return 1.0 * cost_func1(state, action) + 0.8 * cost_func3(state, action)
 def true_cost_p1(state, action):
-    return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
+    return 1.0 * cost_func4(state, action) + 0.0 * cost_func5(state, action) + 0.5 * cost_func6(state, action)
     # return 1.0 * cost_func4(state, action) + 0.4 * cost_func6(state, action)
 
 
@@ -366,7 +366,7 @@ dynamics_func = dyn
 
 num_sims = 1
 steps = 300
-plan_steps = 50
+plan_steps = 300
 
 sim_param = SimulationParams(steps,-1,plan_steps)
 nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
@@ -395,13 +395,16 @@ print("x_inits:", x_inits)
 
 
 theta_true = torch.tensor([5.0, 1.0, 2.0, 1.0,      5.0, 1.0, 1.0, 2.0])
-x_trajectories, u_trajectories = generate_sim(x_inits[0], 
-                                              theta_true, # torch.tensor([5.0, 1.0, 2.0, 1.0, 5.0, 1.0, 1.0, 2.0]),
-                                              100, 
-                                              x_dim, 
-                                              u_dim, 
-                                              2, 
-                                              1)
+# x_trajectories, u_trajectories = generate_sim(x_inits[0], 
+#                                               theta_true, # torch.tensor([5.0, 1.0, 2.0, 1.0, 5.0, 1.0, 1.0, 2.0]),
+#                                               100, 
+#                                               x_dim, 
+#                                               u_dim, 
+#                                               2, 
+#                                               1)
+
+N, alpha, cov, x_trajectory_prev, u_trajectory_prev = solve_iLQGame(sim_param, nl_game, x_inits[0], -1)
+# x_trajec
 
 # x_trajectories = []
 # u_trajectories = []
@@ -426,16 +429,16 @@ x_trajectories, u_trajectories = generate_sim(x_inits[0],
 # with open("x_trajectories.pkl", "rb") as file:
 #     x_trajectories = pickle.load(file)
 
-plot_trajectory(x_trajectories[-1])
+plot_trajectory(x_trajectory_prev)
 
 # print(x.shape, u.shape)
 
-w = ma_irl(dynamics_func, 
-           [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], 
-           x_trajectories, 
-           u_trajectories, 
-           10, 
-           [[0,1,2],[3,4,5]], 
-           2)
+# w = ma_irl(dynamics_func, 
+#            [cost_func1, cost_func2, cost_func3, cost_func4, cost_func5, cost_func6], 
+#            x_trajectories, 
+#            u_trajectories, 
+#            10, 
+#            [[0,1,2],[3,4,5]], 
+#            2)
 
 # print(w)

@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser(description="Whether or not to run the optimize
 parser.add_argument("-o", "--optimize", default=False, help="Whether or not to run the optmized code")
 args = parser.parse_args()
 OPTIMIZE = args.optimize in ["True", "true", "1", "yes"]
+OPTIMIZE = False
 
 class SimulationParams:
     def __init__(self, steps, horizon, plan_steps):
@@ -155,167 +156,306 @@ def generate_simulations(sim_param:SimulationParams,
     
 #     return P, alpha, cov
 
-def lqgame_QRE(dynamic_dicts, cost_dicts):
-    # TODO: I have no idea how to test this, but I do believe
-    # that I implemented it pretty rigourously identical to the 
-    # paper it's definitions. If you would like me to explain 
-    # something let me know! - John
+# def lqgame_QRE(dynamic_dicts, cost_dicts):
+#     # TODO: I have no idea how to test this, but I do believe
+#     # that I implemented it pretty rigourously identical to the 
+#     # paper it's definitions. If you would like me to explain 
+#     # something let me know! - John
 
+#     As = dynamic_dicts["A"]
+    
+#     Bs = dynamic_dicts["B"]
+    
+    
+    
+#     Qs = cost_dicts["Q"]
+#     ls = cost_dicts["l"]
+#     Rs = cost_dicts["R"]
+    
+#     num_agents = len(Bs)
+    
+#     T = len(As)
+#     n = Bs[0][0].shape[0]
+    
+#     m = []
+#     for i in range(num_agents):
+#         if len(Bs[i][0].shape) == 1:
+#             m.append(1)
+#         else:
+#             m.append(Bs[i][0].shape[1])
+
+#     Ps = [[] for _ in range(num_agents)]
+#     alphas = [[] for _ in range(num_agents)]
+#     covs = [[] for _ in range(num_agents)]
+    
+#     Zs = [[] for _ in range(num_agents)]
+#     Fs = []
+#     zetas = [[] for _ in range(num_agents)]
+#     betas = []
+    
+#     # for doing the linear quadratic game backwards passes, 
+#     # initialize the terminal state to the terminal costs and
+#     # then begin to iterate backwards for T iterations
+#     for i in range(num_agents):
+#         Zs[i].append(Qs[i][len(Qs[i])-1])
+#         zetas[i].append(ls[i][len(ls[i])-1])
+    
+#     sum_m = sum(m)
+    
+#     for t in range(T-1, -1, -1):
+#         Z_n = []
+#         for i in range(num_agents):
+#             Z_n.append(Zs[i][len(Zs[i])-1])
+#         S = torch.zeros((sum_m,sum_m))
+        
+#         start, end = 0,0
+#         for i in range(num_agents):
+#             start, end = end, end + m[i]
+#             start_j, end_j = 0,0
+#             for j in range(num_agents):
+#                 start_j, end_j = end_j, end_j + m[i]
+                
+#                 if i == j:
+#                     S[start:end, start_j:end_j] = Rs[i][i][t] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
+#                 else:
+#                     S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
+        
+#         YN = torch.zeros((sum_m, n))
+#         start, end = 0,0
+#         for i in range(num_agents):
+#             start, end = end, end + m[i]
+            
+#             YN[start:end] = Bs[i][t].T @ Z_n[i] @ As[t]
+        
+#         temp_P = torch.linalg.solve(S, YN)# temp_P = S\YN
+#         start, end = 0,0
+#         P = []
+#         for i in range(num_agents):
+#             start, end = end, end + m[i]
+#             P.append(temp_P[start:end])
+        
+#         for i in range(num_agents):
+#             Ps[i].append(P[i])
+        
+#         start, end = 0,0
+#         for i in range(num_agents):
+#             start, end = end, end + m[i]
+#             covs[i].append(torch.linalg.inv(S[start:end, start:end]))
+        
+#         zeta_n = []
+        
+#         for i in range(num_agents):
+#             zeta_n.append(zetas[i][len(zetas[i])-1])
+#         YA = torch.zeros((sum_m,))
+#         start, end = 0,0
+#         for i in range(num_agents):
+#             start, end = end, end + m[i]
+#             YA[start:end] = Bs[i][t].T @ zeta_n[i]
+        
+#         temp_alpha = torch.linalg.solve(S, YA)
+#         alpha = []
+#         start, end = 0,0
+#         for i in range(num_agents):
+#             start, end = end, end + m[i]
+            
+#             alpha.append(temp_alpha[start:end])
+#             alphas[i].append(alpha[i])
+        
+#         F = As[t] - torch.stack([Bs[i][t] @ P[i] for i in range(num_agents)]).sum(dim=0)
+#         Fs.append(F)
+        
+#         beta = - torch.stack([Bs[i][t] @ alpha[i] for i in range(num_agents)]).sum(dim=0)
+#         betas.append(beta)
+        
+#         for i in range(num_agents):
+#             # TODO: should we be adding ls[i][t] or not?
+#             zetas[i].append(F.T @ Z_n[i] @ beta + F.T @ zeta_n[i] + torch.stack([P[j].T @ Rs[i][j][t] @ alpha[j] for j in range(num_agents)]).sum(dim=0) + ls[i][t])
+#         for i in range(num_agents):
+#             Zs[i].append(F.T @ Z_n[i] @ F + torch.stack([P[j].T @ Rs[i][j][t] @ P[j] for j in range(num_agents)]).sum(dim=0) + Qs[i][t])
+    
+    
+#     # # # verifying eq (28)
+#     # for t in range(1, T):
+#     #     for i in range(num_agents):
+#     #         delta = Fs[t].T @ Zs[i][t] @ Fs[t] - Zs[i][t+1] + Qs[i][t]
+#     #         for j in range(num_agents):
+#     #             delta += Ps[j][t].T @ Rs[i][j][t] @ Ps[j][t]
+            
+#     #         # for some reason, this is not 0 or even close to 0
+#     #         print(torch.linalg.norm(delta))
+    
+#     # verifying eq (29)
+#     # for t in range(1, T):
+#     #     for i in range(num_agents):
+#     #         delta = Fs[t].T @ (zetas[i][t-1] + Zs[i][t-1]@betas[t]) - zetas[i][t]
+#     #         for j in range(num_agents):
+#     #             delta += Ps[j][t].T @ Rs[i][j][t] @ alphas[j][t]
+#     #         print(torch.linalg.norm(delta))
+    
+#     # verifying eq (30)
+#     # for t in range(T):
+#     #     delta = As[t] - Fs[t]
+#     #     for j in range(num_agents):
+#     #         delta -= Bs[j][t] @ Ps[j][t]
+#     #     print(torch.linalg.norm(delta))
+    
+#     # verifying eq (31)
+#     # for t in range(T):
+#     #     delta = -betas[t]
+#     #     for j in range(num_agents):
+#     #         delta -= Bs[j][t]@alphas[j][t]
+#     #     print(torch.linalg.norm(delta))
+    
+    
+#     # print("dynamic dicts", dynamic_dicts)
+#     # print("cost dicts", cost_dicts)
+#     # print("Ps", Ps)
+#     # print("alphas", alphas)
+#     # print('covs', covs)
+#     # print("Zs", Zs)
+#     # print("Fs", Fs)
+#     # print("zetas", zetas)
+#     # print("betas", betas)
+    
+    
+#     return Ps, alphas, covs
+
+def lqgame_QRE(dynamic_dicts, cost_dicts):
     As = dynamic_dicts["A"]
-    
     Bs = dynamic_dicts["B"]
-    
-    
-    
+
     Qs = cost_dicts["Q"]
     ls = cost_dicts["l"]
     Rs = cost_dicts["R"]
-    
+
     num_agents = len(Bs)
-    
     T = len(As)
     n = Bs[0][0].shape[0]
-    
+
     m = []
     for i in range(num_agents):
-        if len(Bs[i][0].shape) == 1:
-            m.append(1)
-        else:
-            m.append(Bs[i][0].shape[1])
+        m.append(1 if len(Bs[i][0].shape) == 1 else Bs[i][0].shape[1])
 
-    Ps = [[] for _ in range(num_agents)]
-    alphas = [[] for _ in range(num_agents)]
-    covs = [[] for _ in range(num_agents)]
-    
-    Zs = [[] for _ in range(num_agents)]
-    Fs = []
-    zetas = [[] for _ in range(num_agents)]
-    betas = []
-    
-    # for doing the linear quadratic game backwards passes, 
-    # initialize the terminal state to the terminal costs and
-    # then begin to iterate backwards for T iterations
-    for i in range(num_agents):
-        Zs[i].append(Qs[i][len(Qs[i])-1])
-        zetas[i].append(ls[i][len(ls[i])-1])
-    
     sum_m = sum(m)
-    
-    for t in range(T-1, -1, -1):
-        Z_n = []
-        for i in range(num_agents):
-            Z_n.append(Zs[i][len(Zs[i])-1])
-        S = torch.zeros((sum_m,sum_m))
-        
-        start, end = 0,0
+
+    # Preallocate all lists
+    Ps = [[None for _ in range(T)] for _ in range(num_agents)]
+    alphas = [[None for _ in range(T)] for _ in range(num_agents)]
+    covs = [[None for _ in range(T)] for _ in range(num_agents)]
+    Zs = [[None for _ in range(T + 1)] for _ in range(num_agents)]
+    zetas = [[None for _ in range(T + 1)] for _ in range(num_agents)]
+    Fs = [None for _ in range(T)]
+    betas = [None for _ in range(T)]
+
+    # Initialize terminal cost (t = T)
+    for i in range(num_agents):
+        Zs[i][T] = Qs[i][T]
+        zetas[i][T] = ls[i][T]
+
+    for t in reversed(range(T)):
+        Z_n = [Zs[i][t + 1] for i in range(num_agents)]
+
+        S = torch.zeros((sum_m, sum_m))
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            start_j, end_j = 0,0
+            start_j, end_j = 0, 0
             for j in range(num_agents):
-                start_j, end_j = end_j, end_j + m[i]
-                
+                start_j, end_j = end_j, end_j + m[j]
                 if i == j:
                     S[start:end, start_j:end_j] = Rs[i][i][t] + Bs[i][t].T @ Z_n[i] @ Bs[j][t]
                 else:
                     S[start:end, start_j:end_j] = Bs[i][t].T @ Z_n[i] @ Bs[j][t]
-        
+
         YN = torch.zeros((sum_m, n))
-        start, end = 0,0
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            
             YN[start:end] = Bs[i][t].T @ Z_n[i] @ As[t]
-        
-        temp_P = torch.linalg.solve(S, YN)# temp_P = S\YN
-        start, end = 0,0
-        P = []
+
+        temp_P = torch.linalg.solve(S, YN)
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            P.append(temp_P[start:end])
-        
-        for i in range(num_agents):
-            Ps[i].append(P[i])
-        
-        start, end = 0,0
-        for i in range(num_agents):
-            start, end = end, end + m[i]
-            covs[i].append(torch.linalg.inv(S[start:end, start:end]))
-        
-        zeta_n = []
-        
-        for i in range(num_agents):
-            zeta_n.append(zetas[i][len(zetas[i])-1])
+            Ps[i][t] = temp_P[start:end]
+            covs[i][t] = torch.linalg.inv(S[start:end, start:end])
+
+        zeta_n = [zetas[i][t + 1] for i in range(num_agents)]
         YA = torch.zeros((sum_m,))
-        start, end = 0,0
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
             YA[start:end] = Bs[i][t].T @ zeta_n[i]
-        
+
         temp_alpha = torch.linalg.solve(S, YA)
-        alpha = []
-        start, end = 0,0
+        start, end = 0, 0
         for i in range(num_agents):
             start, end = end, end + m[i]
-            
-            alpha.append(temp_alpha[start:end])
-            alphas[i].append(alpha[i])
-        
-        F = As[t] - torch.stack([Bs[i][t] @ P[i] for i in range(num_agents)]).sum(dim=0)
-        Fs.append(F)
-        
-        beta = - torch.stack([Bs[i][t] @ alpha[i] for i in range(num_agents)]).sum(dim=0)
-        betas.append(beta)
-        
+            alphas[i][t] = temp_alpha[start:end]
+
+        F = As[t] - sum(Bs[j][t] @ Ps[j][t] for j in range(num_agents))
+        Fs[t] = F
+
+        beta = -sum(Bs[j][t] @ alphas[j][t] for j in range(num_agents))
+        betas[t] = beta
+
         for i in range(num_agents):
-            # TODO: should we be adding ls[i][t]
-            zetas[i].append(F.T @ Z_n[i] @ beta + F.T @ zeta_n[i] + torch.stack([P[j].T @ Rs[i][j][t] @ alpha[j] for j in range(num_agents)]).sum(dim=0) + ls[i][t])
-        for i in range(num_agents):
-            Zs[i].append(F.T @ Z_n[i] @ F + torch.stack([P[j].T @ Rs[i][j][t] @ P[j] for j in range(num_agents)]).sum(dim=0) + Qs[i][t])
+            zetas[i][t] = (
+                F.T @ Z_n[i] @ beta
+                + F.T @ zeta_n[i]
+                + sum(Ps[j][t].T @ Rs[i][j][t] @ alphas[j][t] for j in range(num_agents))
+                #+ ls[i][t]
+            )
+            Zs[i][t] = (
+                F.T @ Z_n[i] @ F
+                + sum(Ps[j][t].T @ Rs[i][j][t] @ Ps[j][t] for j in range(num_agents))
+                + Qs[i][t]
+            )
     
-    
-    # # verifying eq (28)
-    for t in range(1, T):
-        for i in range(num_agents):
-            delta = Fs[t].T @ Zs[i][t] @ Fs[t] - Zs[i][t+1] + Qs[i][t]
-            for j in range(num_agents):
-                delta += Ps[j][t].T @ Rs[i][j][t] @ Ps[j][t]
-            print(torch.linalg.norm(delta))
-    
-    # verifying eq (29)
-    # for t in range(1, T):
+    # verifying eq 25 (ieee)
+    # for t in range(T):
     #     for i in range(num_agents):
-    #         delta = Fs[t].T @ (zetas[i][t-1] + Zs[i][t-1]@betas[t]) - zetas[i][t]
+    #         LHS = (Rs[i][i][t] + Bs[i][t].T @ Zs[i][t+1] @ Bs[i][t]) @ Ps[i][t]
+    #         for j in range(num_agents):
+    #             if j == i:
+    #                 continue
+    #             LHS += Bs[i][t].T @ Zs[i][t+1] @ Bs[j][t] @ Ps[j][t]
+            
+    #         RHS = Bs[i][t].T @ Zs[i][t+1] @ As[t]
+    #         print(torch.linalg.norm(LHS-RHS))
+    
+    # verifying eq 26 (ieee)
+    # for t in range(T):
+    #     for i in range(num_agents):
+    #         LHS = (Rs[i][i][t] + Bs[i][t].T @ Zs[i][t+1] @ Bs[i][t]) @ alphas[i][t]
+    #         for j in range(num_agents):
+    #             if j == i:
+    #                 continue
+    #             LHS += Bs[i][t].T @ Zs[i][t+1] @ Bs[j][t] @ alphas[j][t]
+            
+    #         RHS = Bs[i][t].T @ zetas[i][t+1]
+    #         print(torch.linalg.norm(LHS-RHS))
+            
+    
+    # verifying eq 27 (ieee)
+    # for t in range(T):
+    #     for i in range(num_agents):
+    #         delta = Fs[t].T @ Zs[i][t+1] @ Fs[t] + Qs[i][t] - Zs[i][t]
+    #         for j in range(num_agents):
+    #             delta += Ps[j][t].T @ Rs[i][j][t] @ Ps[j][t]
+    #         print(torch.linalg.norm(delta))
+    
+    # verifying eq 28 (ieee)
+    # for t in range(T):
+    #     for i in range(num_agents):
+    #         delta = Fs[t].T @ (zetas[i][t+1] + Zs[i][t+1] @ betas[t]) - zetas[i][t]
     #         for j in range(num_agents):
     #             delta += Ps[j][t].T @ Rs[i][j][t] @ alphas[j][t]
     #         print(torch.linalg.norm(delta))
     
-    # verifying eq (30)
-    # for t in range(T):
-    #     delta = As[t] - Fs[t]
-    #     for j in range(num_agents):
-    #         delta -= Bs[j][t] @ Ps[j][t]
-    #     print(torch.linalg.norm(delta))
-    
-    # verifying eq (31)
-    # for t in range(T):
-    #     delta = -betas[t]
-    #     for j in range(num_agents):
-    #         delta -= Bs[j][t]@alphas[j][t]
-    #     print(torch.linalg.norm(delta))
-    
-    
-    # print("dynamic dicts", dynamic_dicts)
-    # print("cost dicts", cost_dicts)
-    # print("Ps", Ps)
-    # print("alphas", alphas)
-    # print('covs', covs)
-    # print("Zs", Zs)
-    # print("Fs", Fs)
-    # print("zetas", zetas)
-    # print("betas", betas)
-    
-    
-    return Ps, alphas, covs
+
+    return Ps, alphas, covs#, Zs, zetas, Fs, betas
+
 
 def combine_hessian_blocks(hessian_blocks):
     row_blocks = []
@@ -324,292 +464,116 @@ def combine_hessian_blocks(hessian_blocks):
     full_hessian = torch.cat(row_blocks, dim=0)
     return full_hessian
 
-def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor, traj_ref:torch.Tensor):
-    # TODO: Varun
+def solve_iLQGame(sim_param: SimulationParams, nl_game: NonlinearGame, x_init: torch.Tensor, traj_ref: torch.Tensor):
     num_player = len(nl_game.u_dims)
-    
-    
     plan_steps = sim_param.plan_steps
     x_dim = nl_game.x_dim
     u_dim = nl_game.u_dim
     u_dims = nl_game.u_dims
-    
-    x_trajectory = torch.zeros((plan_steps+1, x_dim))
+
+    x_trajectory = torch.zeros((plan_steps + 1, x_dim))
     x_trajectory[0] = x_init
     u_trajectory = torch.zeros((plan_steps, u_dim))
     
     for t in range(plan_steps):
-        x_trajectory[t+1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
-    
+        x_trajectory[t + 1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
+
     tol = 1.0
+    err = float('inf')
+    max_itr = 10
     itr = 0
-    err = 10
-    max_itr = 2
     x_trajectory_prev = x_trajectory.clone()
     u_trajectory_prev = u_trajectory.clone()
-    N = [[] for _ in range(num_player)]
-    alpha = [[] for _ in range(num_player)]
-    cov = [[] for _ in range(num_player)]
     
     while err > tol and itr < max_itr:
-        if OPTIMIZE: 
-            # Preallocate storage
-            Dynamics = {}
-            Dynamics["A"] = torch.zeros(plan_steps, x_dim, x_dim, device=x_trajectory_prev.device)
-            Dynamics["B"] = [torch.zeros(plan_steps, x_dim, u_dims[i], device=x_trajectory_prev.device) for i in range(num_player)]
-            Costs = {}
-            Costs["Q"] = [torch.zeros(plan_steps, x_dim, x_dim, device=x_trajectory_prev.device) for i in range(num_player)]
-            Costs["l"] = [torch.zeros(plan_steps, x_dim, device=x_trajectory_prev.device) for i in range(num_player)]
-            Costs["R"] = [[torch.zeros(plan_steps, u_dims[i], u_dims[j], device=x_trajectory_prev.device) for j in range(num_player)] for i in range(num_player)]
+        Dynamics = {
+            "A": torch.empty((plan_steps, x_dim, x_dim)),
+            "B": [torch.empty((plan_steps, x_dim, u_dims[i])) for i in range(num_player)],
+        }
+        Costs = {
+            "Q": [torch.empty((plan_steps + 1, x_dim, x_dim)) for _ in range(num_player)],
+            "l": [torch.empty((plan_steps + 1, x_dim)) for _ in range(num_player)],
+            "R": [[torch.empty((plan_steps, u_dims[j], u_dims[i])) for j in range(num_player)] for i in range(num_player)],
+        }
 
         for t in range(plan_steps):
-            # Compute Jacobian for dynamics
-            x, ref, u = (
-                x_trajectory_prev[t].detach().requires_grad_(),
-                traj_ref[t].detach().requires_grad_(),
-                u_trajectory_prev[t].detach().requires_grad_()
-            )
-            jac = functional.jacobian(nl_game.dynamics, (x, u))
-            jac = torch.cat(jac, dim=-1)  # [x_dim, x_dim + ref_dim + u_dim]
+            x_t = x_trajectory_prev[t].detach().requires_grad_()
+            u_t = u_trajectory_prev[t].detach().requires_grad_()
+            jac_xu = torch.cat(functional.jacobian(nl_game.dynamics, (x_t, u_t)), dim=-1)
 
-            Dynamics["A"][t] = jac[:, :x_dim]
-            start_index = x_dim
+            Dynamics["A"][t] = jac_xu[:, :x_dim]
+            col_start = x_dim
             for i in range(num_player):
-                end_index = start_index + u_dims[i]
-                Dynamics["B"][i][t] = jac[:, start_index:end_index]
-                start_index = end_index
+                col_end = col_start + u_dims[i]
+                Dynamics["B"][i][t] = jac_xu[:, col_start:col_end]
+                col_start = col_end
 
-            # Concatenate inputs: [x; ref; u]
-            input_vector = torch.cat([x, ref, u], dim=0).requires_grad_(True)  # Shape: (x_dim + ref_dim + u_dim,)
-            ref_dim = ref.shape[0]
-
-            # Compute gradients and Hessians
-            hessians = []
-            batched_grads = []
+            gradients, hessians = [], []
             for i in range(num_player):
-                def cost_wrapper(x_input):
-                    state = x_input[:x_dim]
-                    action = x_input[x_dim + ref_dim:]
-                    return nl_game.cost_funcs[i](state, action)
-
-                cost = cost_wrapper(input_vector)
-                grad = torch.autograd.grad(cost, input_vector, create_graph=True)[0]
-                batched_grads.append(grad)
-
-                hess = functional.hessian(cost_wrapper, input_vector)
+                grad = torch.cat(functional.jacobian(nl_game.cost_funcs[i], (x_t, u_t)), dim=-1)
+                hess = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], (x_t, u_t)))
+                gradients.append(grad)
                 hessians.append(hess)
 
-            # Assign to Costs
             for i in range(num_player):
-                grad = batched_grads[i]
-                hess = hessians[i]
-
-                Q_i = hess[:x_dim, :x_dim]
-                r = torch.min(torch.linalg.eigvalsh(Q_i))
-                if r <= 0.0:
-                    Q_i += (torch.abs(r) + 1e-3) * torch.eye(x_dim, device=Q_i.device)
-                Costs["Q"][i][t] = Q_i
-
-                Costs["l"][i][t] = grad[:x_dim]
-
-                start_index = x_dim + ref_dim
+                Q = hessians[i][:x_dim, :x_dim]
+                eig_min = torch.min(torch.linalg.eigvalsh(Q))
+                if eig_min <= 0:
+                    Q += (torch.abs(eig_min) + 1e-3) * torch.eye(x_dim)
+                Costs["Q"][i][t] = Q
+                Costs["l"][i][t] = gradients[i][:x_dim]
+                offset = x_dim
                 for j in range(num_player):
-                    end_index = start_index + u_dims[j]
-                    Costs["R"][i][j][t] = hess[start_index:end_index, start_index:end_index]
-                    start_index = end_index
+                    u_j_dim = u_dims[j]
+                    Costs["R"][i][j][t] = hessians[i][offset:offset+u_j_dim, offset:offset+u_j_dim]
+                    offset += u_j_dim
 
-            # for t in range(plan_steps):
-            #     # Compute Jacobian for dynamics
-            #     x, ref, u = x_trajectory_prev[t].detach().requires_grad_(), traj_ref[t].detach().requires_grad_(), u_trajectory_prev[t].detach().requires_grad_()
-            #     jac = functional.jacobian(nl_game.dynamics, (x, ref, u))
-            #     jac = torch.cat(jac, dim=-1)  # [x_dim, x_dim + sum(u_dims)]
+        # Terminal cost
+        x_T = x_trajectory_prev[plan_steps].detach().requires_grad_()
+        u_Tm1 = u_trajectory_prev[plan_steps-1].detach().requires_grad_()
+        for i in range(num_player):
+            grad = torch.cat(functional.jacobian(nl_game.cost_funcs[i], (x_T, u_Tm1)), dim=-1)
+            hess = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], (x_T, u_Tm1)))
+            Q = hess[:x_dim, :x_dim]
+            eig_min = torch.min(torch.linalg.eigvalsh(Q))
+            if eig_min <= 0:
+                Q += (torch.abs(eig_min) + 1e-3) * torch.eye(x_dim)
+            Costs["Q"][i][plan_steps] = Q
+            Costs["l"][i][plan_steps] = grad[:x_dim]
 
-            #     Dynamics["A"][t] = jac[:, :x_dim]
-            #     start_index, end_index = x_dim, x_dim
-            #     for i in range(num_player):
-            #         Dynamics["B"][i][t] = jac[:, start_index:start_index + u_dims[i]]
-            #         start_index += u_dims[i]
+        N, alpha, cov = lqgame_QRE(Dynamics, Costs)
 
-            #     # Batch cost function computations
-            #     def stacked_costs(x, u):
-            #         return torch.stack([nl_game.cost_funcs[i](x, u) for i in range(num_player)])
-
-            #     cost_input = (x, u)
-            #     batched_grads = functional.jacobian(stacked_costs, cost_input)  # [num_player, x_dim + sum(u_dims)]
-            #     batched_grads = torch.cat(batched_grads, dim=-1)
-
-            #     hessians = []
-            #     for i in range(num_player):
-            #         cost = nl_game.cost_funcs[i](x, u)
-            #         grad_x = torch.autograd.grad(cost, x, create_graph=True)[0]
-            #         Q_i = torch.zeros(x_dim, x_dim, device=x.device)
-            #         for j in range(x_dim):
-            #             Q_i[j] = torch.autograd.grad(grad_x[j], x, retain_graph=True)[0]
-
-            #         # Compute R blocks (control-control)
-            #         grad_u = torch.autograd.grad(cost, u, create_graph=True)[0]
-            #         R_i = torch.zeros(nl_game.u_dim, nl_game.u_dim, device=u.device)
-            #         for j in range(nl_game.u_dim):
-            #             R_i[j] = torch.autograd.grad(grad_u[j], u, retain_graph=True)[0]
-
-            #         hessians.append(torch.block_diag(Q_i, R_i))  # Simplified; adjust for cross-terms
-
-            #     # Assign to Costs
-            #     for i in range(num_player):
-            #         Q_i = hessians[i][:x_dim, :x_dim]
-            #         r = torch.min(torch.linalg.eigvalsh(Q_i))
-            #         if r <= 0.0:
-            #             Q_i += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
-
-            #         Costs["Q"][i][t] = Q_i
-            #         Costs["l"][i][t] = batched_grads[i][:x_dim]
-            #         start_index, end_index = x_dim, x_dim
-            #         for j in range(num_player):
-            #             Costs["R"][i][j][t] = hessians[i][start_index:start_index + u_dims[j], start_index:start_index + u_dims[j]]
-            #             start_index += u_dims[j]
-
-        else:
-            Dynamics = {}
-            Dynamics["A"] = torch.empty((plan_steps, x_dim, x_dim))
-            Dynamics["B"] = [torch.empty((plan_steps, x_dim, u_dims[i])) for i in range(num_player)]
-
-            Costs = {}
-            Costs["Q"] = [torch.empty((plan_steps+1, x_dim, x_dim)) for _ in range(num_player)]
-            Costs["l"] = [torch.empty((plan_steps+1, x_dim)) for _ in range(num_player)]
-            Costs["R"] = [[torch.empty(plan_steps, u_dims[j], u_dims[i]) for j in range(num_player)] for i in range(num_player)]
-        
-            for t in range(plan_steps):
-                # dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
-                # jac = functional.jacobian(nl_game.dynamics, dynamics_input)
-                jac = functional.jacobian(nl_game.dynamics, (x_trajectory_prev[t].detach().requires_grad_(), u_trajectory_prev[t].detach().requires_grad_()))
-                jac = torch.cat(jac, dim=-1)
-                
-                
-                A = jac[:, :x_dim]
-                start_index, end_index = 0,x_dim
-                
-                Dynamics["A"][t] = A
-                for i in range(num_player):
-                    start_index, end_index = end_index, end_index+u_dims[i]
-                    Dynamics["B"][i][t] = jac[:, start_index:end_index]
-                
-                gradients = []
-                hessians = []
-                cost_input = (x_trajectory_prev[t].detach().requires_grad_(), u_trajectory[t].detach().requires_grad_())
-                for i in range(num_player):
-                    r = functional.jacobian(nl_game.cost_funcs[i], cost_input)
-                    gradients.append(torch.cat(r, dim=-1))
-                    r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
-                    hessians.append(r)
-                
-                Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
-                for i in range(num_player):
-                    r = torch.min(torch.linalg.eigvalsh(Q[i]))
-                    if r <= 0.0:
-                        Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
-                
-                for i in range(num_player):
-                    Costs["Q"][i][t] = Q[i]
-                    Costs["l"][i][t] = gradients[i][:x_dim]
-                    start_index, end_index = 0, x_dim
-                    for j in range(num_player):
-                        start_index, end_index = end_index, end_index+u_dims[j]
-                        Costs["R"][i][j][t] = hessians[i][start_index:end_index, start_index:end_index]
-                
-            gradients = []
-            hessians = []
-            cost_input = (x_trajectory_prev[plan_steps].detach().requires_grad_(), u_trajectory[plan_steps-1].detach().requires_grad_())
-            for i in range(num_player):
-                r = torch.cat(functional.jacobian(nl_game.cost_funcs[i], cost_input), dim=-1)
-                gradients.append(r)
-                r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
-                hessians.append(r)
-            Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
-            for i in range(num_player):
-                r = torch.min(torch.linalg.eigvalsh(Q[i]))
-                if r <= 0.0:
-                    Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
-            for i in range(num_player):
-                Costs["Q"][i][plan_steps] = Q[i]
-                Costs["l"][i][plan_steps] = gradients[i][:x_dim]
-        
-        N, alpha, cov = lqgame_QRE(Dynamics, Costs)        
-
-        # for t in range(plan_steps):
-
-        # # Create a figure with subplots for each agent
-        # fig, axes = plt.subplots(num_player, 3, figsize=(15, 5 * num_player), squeeze=False)
-        # fig.suptitle(f'Cost Matrices at Iteration {itr}, Step {-1}, Optimizing {OPTIMIZE}', fontsize=16)
-
-        # for i in range(num_player):
-        #     # Convert tensors to numpy for plotting
-        #     Q_i = Costs["Q"][i][-1].detach().cpu().numpy()
-        #     l_i = Costs["l"][i][-1].detach().cpu().numpy()
-        #     # For R, we'll plot R[i][i] (own control cost)
-        #     R_ii = Costs["R"][i][i][-1].detach().cpu().numpy()
-
-        #     # Plot Q matrix (heatmap)
-        #     ax_Q = axes[i, 0]
-        #     im_Q = ax_Q.imshow(Q_i, cmap='viridis', interpolation='nearest')
-        #     ax_Q.set_title(f'Agent {i+1}: Q')
-        #     ax_Q.set_xlabel('State Dim')
-        #     ax_Q.set_ylabel('State Dim')
-        #     plt.colorbar(im_Q, ax=ax_Q)
-
-        #     # Plot l vector (bar plot)
-        #     ax_l = axes[i, 1]
-        #     ax_l.bar(range(x_dim), l_i)
-        #     ax_l.set_title(f'Agent {i+1}: l')
-        #     ax_l.set_xlabel('State Dim')
-        #     ax_l.set_ylabel('Value')
-        #     ax_l.grid(True, alpha=0.3)
-
-        #     # Plot R matrix (heatmap)
-        #     ax_R = axes[i, 2]
-        #     im_R = ax_R.imshow(R_ii, cmap='viridis', interpolation='nearest')
-        #     ax_R.set_title(f'Agent {i+1}: R')
-        #     ax_R.set_xlabel('Control Dim')
-        #     ax_R.set_ylabel('Control Dim')
-        #     plt.colorbar(im_R, ax=ax_R)
-        
-        # # Adjust layout and save
-        # plt.tight_layout(rect=[0, 0, 1, 0.95])
-        # # plt.savefig(os.path.join(output_dir, f'cost_matrices_iter_{t}.png'))
-        # # plt.close(fig)
-        # plt.show()
-        
         step_size = 1.0
         done = False
         while not done:
             u_trajectory = torch.zeros((plan_steps, u_dim))
-            x_trajectory = torch.zeros((plan_steps+1, x_dim))
-            x_trajectory[0,:] = x_init
+            x_trajectory = torch.zeros((plan_steps + 1, x_dim))
+            x_trajectory[0] = x_init
+
             for t in range(plan_steps):
                 delta_x = x_trajectory[t] - x_trajectory_prev[t]
-                
-                
-                
-                start_index = 0
-                end_index = 0
-                
-                
+                start_idx = 0
                 for agent in range(num_player):
-                    reverse_index = len(N[agent])-t-1
-                    start_index,end_index = end_index,end_index+u_dims[agent]
-                    u_trajectory[t, start_index:end_index] = (-N[agent][reverse_index] @ delta_x - alpha[agent][reverse_index] * step_size) + u_trajectory_prev[t,start_index:end_index]
-                
-                x_trajectory[t+1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
+                    end_idx = start_idx + u_dims[agent]
+                    u_nominal = u_trajectory_prev[t, start_idx:end_idx]
+                    u_correction = -N[agent][t] @ delta_x - alpha[agent][t] * step_size
+                    u_trajectory[t, start_idx:end_idx] = u_nominal + u_correction
+                    start_idx = end_idx
+
+                x_trajectory[t + 1] = nl_game.dynamics(x_trajectory[t], u_trajectory[t])
+
             if torch.max(torch.abs(x_trajectory - x_trajectory_prev)) > 1.0:
                 step_size /= 2
             else:
                 done = True
-        
-        err = torch.sum(torch.abs(x_trajectory_prev - x_trajectory))
-        itr += 1
+
+        err = torch.sum(torch.abs(x_trajectory - x_trajectory_prev))
         x_trajectory_prev = x_trajectory.clone()
         u_trajectory_prev = u_trajectory.clone()
-    
+        itr += 1
+
     return N, alpha, cov, x_trajectory_prev, u_trajectory_prev
+
 
 
 
