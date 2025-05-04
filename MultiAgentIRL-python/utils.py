@@ -1,8 +1,19 @@
+import os
 import numpy as np
 import torch
 import torch.autograd.functional as functional
 from torch.distributions.multivariate_normal import MultivariateNormal
+import argparse
+import matplotlib.pyplot as plt
 
+# OPTIMIZE = True
+# OPTIMIZE = os.environ.get('optimize', 'False').lower() in ['true', '1', 'yes']
+# print(OPTIMIZE)
+
+parser = argparse.ArgumentParser(description="Whether or not to run the optimized code")
+parser.add_argument("-o", "--optimize", default=False, help="Whether or not to run the optmized code")
+args = parser.parse_args()
+OPTIMIZE = args.optimize in ["True", "true", "1", "yes"]
 
 class SimulationParams:
     def __init__(self, steps, horizon, plan_steps):
@@ -37,9 +48,14 @@ class NonlinearGame:
         self.u_dim = u_dim
         self.cost_funcs = cost_funcs
         self.num_agents = num_agents
+   
 
-
-def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor, num_sim:int, num_players:int):
+def generate_simulations(sim_param:SimulationParams, 
+                         nl_game:NonlinearGame, 
+                         x_init:torch.Tensor, 
+                         traj_ref:torch.Tensor,
+                         num_sim:int, 
+                         num_players:int):
     """_summary_
 
     Args:
@@ -68,8 +84,10 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
         u_history = torch.zeros((steps, u_dim))
         
         for t in range(steps):
-            # print(t)
-            Nlist_all, alphalist_all, cov_all, x_nominal, u_nominal = solve_iLQGame(sim_param=sim_param, nl_game=nl_game, x_init=x_history[t])
+            Nlist_all, alphalist_all, cov_all, x_nominal, u_nominal = solve_iLQGame(sim_param=sim_param, 
+                                                                                    nl_game=nl_game, 
+                                                                                    x_init=x_history[t],
+                                                                                    traj_ref=traj_ref[t:t+plan_steps])
             delta_x = x_history[t] - x_nominal[0]
             u_dists = []
             for ip in range(num_players):
@@ -77,7 +95,8 @@ def generate_simulations(sim_param:SimulationParams, nl_game:NonlinearGame, x_in
                 u_mean = -Nlist_all[ip][len(Nlist_all[ip])-1] @ delta_x - alphalist_all[ip][len(alphalist_all[ip])-1]
                 # TODO: should the covariance be something like Symmetric(cov_all[ip][end])??
                 
-                u_cov = torch.eye(nl_game.u_dims[ip])
+                # u_cov = torch.eye(nl_game.u_dims[ip])
+                u_cov = torch.mean(torch.stack(cov_all[ip]), dim=0)
                 u_dist = torch.distributions.MultivariateNormal(u_mean, covariance_matrix=u_cov)
                 u_dists.append(u_dist)
             control = []
@@ -305,7 +324,7 @@ def combine_hessian_blocks(hessian_blocks):
     full_hessian = torch.cat(row_blocks, dim=0)
     return full_hessian
 
-def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor):
+def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torch.Tensor, traj_ref:torch.Tensor):
     # TODO: Varun
     num_player = len(nl_game.u_dims)
     
@@ -333,73 +352,231 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
     cov = [[] for _ in range(num_player)]
     
     while err > tol and itr < max_itr:
-        # print(err, itr)
-        Dynamics = {}
-        Dynamics["A"] = torch.empty((plan_steps, x_dim, x_dim))
-        Dynamics["B"] = [torch.empty((plan_steps, x_dim, u_dims[i])) for i in range(num_player)]
+        if OPTIMIZE: 
+            # Preallocate storage
+            Dynamics = {}
+            Dynamics["A"] = torch.zeros(plan_steps, x_dim, x_dim, device=x_trajectory_prev.device)
+            Dynamics["B"] = [torch.zeros(plan_steps, x_dim, u_dims[i], device=x_trajectory_prev.device) for i in range(num_player)]
+            Costs = {}
+            Costs["Q"] = [torch.zeros(plan_steps, x_dim, x_dim, device=x_trajectory_prev.device) for i in range(num_player)]
+            Costs["l"] = [torch.zeros(plan_steps, x_dim, device=x_trajectory_prev.device) for i in range(num_player)]
+            Costs["R"] = [[torch.zeros(plan_steps, u_dims[i], u_dims[j], device=x_trajectory_prev.device) for j in range(num_player)] for i in range(num_player)]
 
-        Costs = {}
-        Costs["Q"] = [torch.empty((plan_steps+1, x_dim, x_dim)) for _ in range(num_player)]
-        Costs["l"] = [torch.empty((plan_steps+1, x_dim)) for _ in range(num_player)]
-        Costs["R"] = [[torch.empty(plan_steps, u_dims[j], u_dims[i]) for j in range(num_player)] for i in range(num_player)]
-        
         for t in range(plan_steps):
-            # dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
-            # jac = functional.jacobian(nl_game.dynamics, dynamics_input)
-            jac = functional.jacobian(nl_game.dynamics, (x_trajectory[t].detach().requires_grad_(), u_trajectory[t].detach().requires_grad_()))
-            jac = torch.cat(jac, dim=-1)
-            
-            
-            A = jac[:, :x_dim]
-            start_index, end_index = 0,x_dim
-            
-            Dynamics["A"][t] = A
+            # Compute Jacobian for dynamics
+            x, ref, u = (
+                x_trajectory_prev[t].detach().requires_grad_(),
+                traj_ref[t].detach().requires_grad_(),
+                u_trajectory_prev[t].detach().requires_grad_()
+            )
+            jac = functional.jacobian(nl_game.dynamics, (x, u))
+            jac = torch.cat(jac, dim=-1)  # [x_dim, x_dim + ref_dim + u_dim]
+
+            Dynamics["A"][t] = jac[:, :x_dim]
+            start_index = x_dim
             for i in range(num_player):
-                start_index, end_index = end_index, end_index+u_dims[i]
+                end_index = start_index + u_dims[i]
                 Dynamics["B"][i][t] = jac[:, start_index:end_index]
-            
+                start_index = end_index
+
+            # Concatenate inputs: [x; ref; u]
+            input_vector = torch.cat([x, ref, u], dim=0).requires_grad_(True)  # Shape: (x_dim + ref_dim + u_dim,)
+            ref_dim = ref.shape[0]
+
+            # Compute gradients and Hessians
+            hessians = []
+            batched_grads = []
+            for i in range(num_player):
+                def cost_wrapper(x_input):
+                    state = x_input[:x_dim]
+                    action = x_input[x_dim + ref_dim:]
+                    return nl_game.cost_funcs[i](state, action)
+
+                cost = cost_wrapper(input_vector)
+                grad = torch.autograd.grad(cost, input_vector, create_graph=True)[0]
+                batched_grads.append(grad)
+
+                hess = functional.hessian(cost_wrapper, input_vector)
+                hessians.append(hess)
+
+            # Assign to Costs
+            for i in range(num_player):
+                grad = batched_grads[i]
+                hess = hessians[i]
+
+                Q_i = hess[:x_dim, :x_dim]
+                r = torch.min(torch.linalg.eigvalsh(Q_i))
+                if r <= 0.0:
+                    Q_i += (torch.abs(r) + 1e-3) * torch.eye(x_dim, device=Q_i.device)
+                Costs["Q"][i][t] = Q_i
+
+                Costs["l"][i][t] = grad[:x_dim]
+
+                start_index = x_dim + ref_dim
+                for j in range(num_player):
+                    end_index = start_index + u_dims[j]
+                    Costs["R"][i][j][t] = hess[start_index:end_index, start_index:end_index]
+                    start_index = end_index
+
+            # for t in range(plan_steps):
+            #     # Compute Jacobian for dynamics
+            #     x, ref, u = x_trajectory_prev[t].detach().requires_grad_(), traj_ref[t].detach().requires_grad_(), u_trajectory_prev[t].detach().requires_grad_()
+            #     jac = functional.jacobian(nl_game.dynamics, (x, ref, u))
+            #     jac = torch.cat(jac, dim=-1)  # [x_dim, x_dim + sum(u_dims)]
+
+            #     Dynamics["A"][t] = jac[:, :x_dim]
+            #     start_index, end_index = x_dim, x_dim
+            #     for i in range(num_player):
+            #         Dynamics["B"][i][t] = jac[:, start_index:start_index + u_dims[i]]
+            #         start_index += u_dims[i]
+
+            #     # Batch cost function computations
+            #     def stacked_costs(x, u):
+            #         return torch.stack([nl_game.cost_funcs[i](x, u) for i in range(num_player)])
+
+            #     cost_input = (x, u)
+            #     batched_grads = functional.jacobian(stacked_costs, cost_input)  # [num_player, x_dim + sum(u_dims)]
+            #     batched_grads = torch.cat(batched_grads, dim=-1)
+
+            #     hessians = []
+            #     for i in range(num_player):
+            #         cost = nl_game.cost_funcs[i](x, u)
+            #         grad_x = torch.autograd.grad(cost, x, create_graph=True)[0]
+            #         Q_i = torch.zeros(x_dim, x_dim, device=x.device)
+            #         for j in range(x_dim):
+            #             Q_i[j] = torch.autograd.grad(grad_x[j], x, retain_graph=True)[0]
+
+            #         # Compute R blocks (control-control)
+            #         grad_u = torch.autograd.grad(cost, u, create_graph=True)[0]
+            #         R_i = torch.zeros(nl_game.u_dim, nl_game.u_dim, device=u.device)
+            #         for j in range(nl_game.u_dim):
+            #             R_i[j] = torch.autograd.grad(grad_u[j], u, retain_graph=True)[0]
+
+            #         hessians.append(torch.block_diag(Q_i, R_i))  # Simplified; adjust for cross-terms
+
+            #     # Assign to Costs
+            #     for i in range(num_player):
+            #         Q_i = hessians[i][:x_dim, :x_dim]
+            #         r = torch.min(torch.linalg.eigvalsh(Q_i))
+            #         if r <= 0.0:
+            #             Q_i += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
+
+            #         Costs["Q"][i][t] = Q_i
+            #         Costs["l"][i][t] = batched_grads[i][:x_dim]
+            #         start_index, end_index = x_dim, x_dim
+            #         for j in range(num_player):
+            #             Costs["R"][i][j][t] = hessians[i][start_index:start_index + u_dims[j], start_index:start_index + u_dims[j]]
+            #             start_index += u_dims[j]
+
+        else:
+            Dynamics = {}
+            Dynamics["A"] = torch.empty((plan_steps, x_dim, x_dim))
+            Dynamics["B"] = [torch.empty((plan_steps, x_dim, u_dims[i])) for i in range(num_player)]
+
+            Costs = {}
+            Costs["Q"] = [torch.empty((plan_steps+1, x_dim, x_dim)) for _ in range(num_player)]
+            Costs["l"] = [torch.empty((plan_steps+1, x_dim)) for _ in range(num_player)]
+            Costs["R"] = [[torch.empty(plan_steps, u_dims[j], u_dims[i]) for j in range(num_player)] for i in range(num_player)]
+        
+            for t in range(plan_steps):
+                # dynamics_input = torch.cat([x_trajectory_prev[t], u_trajectory_prev[t]])
+                # jac = functional.jacobian(nl_game.dynamics, dynamics_input)
+                jac = functional.jacobian(nl_game.dynamics, (x_trajectory_prev[t].detach().requires_grad_(), u_trajectory_prev[t].detach().requires_grad_()))
+                jac = torch.cat(jac, dim=-1)
+                
+                
+                A = jac[:, :x_dim]
+                start_index, end_index = 0,x_dim
+                
+                Dynamics["A"][t] = A
+                for i in range(num_player):
+                    start_index, end_index = end_index, end_index+u_dims[i]
+                    Dynamics["B"][i][t] = jac[:, start_index:end_index]
+                
+                gradients = []
+                hessians = []
+                cost_input = (x_trajectory_prev[t].detach().requires_grad_(), u_trajectory[t].detach().requires_grad_())
+                for i in range(num_player):
+                    r = functional.jacobian(nl_game.cost_funcs[i], cost_input)
+                    gradients.append(torch.cat(r, dim=-1))
+                    r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
+                    hessians.append(r)
+                
+                Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
+                for i in range(num_player):
+                    r = torch.min(torch.linalg.eigvalsh(Q[i]))
+                    if r <= 0.0:
+                        Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
+                
+                for i in range(num_player):
+                    Costs["Q"][i][t] = Q[i]
+                    Costs["l"][i][t] = gradients[i][:x_dim]
+                    start_index, end_index = 0, x_dim
+                    for j in range(num_player):
+                        start_index, end_index = end_index, end_index+u_dims[j]
+                        Costs["R"][i][j][t] = hessians[i][start_index:end_index, start_index:end_index]
+                
             gradients = []
             hessians = []
-            cost_input = (x_trajectory[t].detach().requires_grad_(), u_trajectory[t].detach().requires_grad_())
+            cost_input = (x_trajectory_prev[plan_steps].detach().requires_grad_(), u_trajectory[plan_steps-1].detach().requires_grad_())
             for i in range(num_player):
-                r = functional.jacobian(nl_game.cost_funcs[i], cost_input)
-                gradients.append(torch.cat(r, dim=-1))
+                r = torch.cat(functional.jacobian(nl_game.cost_funcs[i], cost_input), dim=-1)
+                gradients.append(r)
                 r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
                 hessians.append(r)
-            
             Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
             for i in range(num_player):
                 r = torch.min(torch.linalg.eigvalsh(Q[i]))
                 if r <= 0.0:
                     Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
-            
             for i in range(num_player):
-                Costs["Q"][i][t] = Q[i]
-                Costs["l"][i][t] = gradients[i][:x_dim]
-                start_index, end_index = 0, x_dim
-                for j in range(num_player):
-                    start_index, end_index = end_index, end_index+u_dims[j]
-                    Costs["R"][i][j][t] = hessians[i][start_index:end_index, start_index:end_index]
-            
-        gradients = []
-        hessians = []
-        cost_input = (x_trajectory[plan_steps].detach().requires_grad_(), u_trajectory[plan_steps-1].detach().requires_grad_())
-        for i in range(num_player):
-            r = torch.cat(functional.jacobian(nl_game.cost_funcs[i], cost_input), dim=-1)
-            gradients.append(r)
-            r = combine_hessian_blocks(functional.hessian(nl_game.cost_funcs[i], cost_input))
-            hessians.append(r)
-        Q = [hessians[i][:x_dim, :x_dim] for i in range(num_player)]
-        for i in range(num_player):
-            r = torch.min(torch.linalg.eigvalsh(Q[i]))
-            if r <= 0.0:
-                Q[i] += (torch.abs(r) + 1e-3) * torch.eye(x_dim)
-        for i in range(num_player):
-            Costs["Q"][i][plan_steps] = Q[i]
-            Costs["l"][i][plan_steps] = gradients[i][:x_dim]
-        
+                Costs["Q"][i][plan_steps] = Q[i]
+                Costs["l"][i][plan_steps] = gradients[i][:x_dim]
         
         N, alpha, cov = lqgame_QRE(Dynamics, Costs)        
+
+        # for t in range(plan_steps):
+
+        # # Create a figure with subplots for each agent
+        # fig, axes = plt.subplots(num_player, 3, figsize=(15, 5 * num_player), squeeze=False)
+        # fig.suptitle(f'Cost Matrices at Iteration {itr}, Step {-1}, Optimizing {OPTIMIZE}', fontsize=16)
+
+        # for i in range(num_player):
+        #     # Convert tensors to numpy for plotting
+        #     Q_i = Costs["Q"][i][-1].detach().cpu().numpy()
+        #     l_i = Costs["l"][i][-1].detach().cpu().numpy()
+        #     # For R, we'll plot R[i][i] (own control cost)
+        #     R_ii = Costs["R"][i][i][-1].detach().cpu().numpy()
+
+        #     # Plot Q matrix (heatmap)
+        #     ax_Q = axes[i, 0]
+        #     im_Q = ax_Q.imshow(Q_i, cmap='viridis', interpolation='nearest')
+        #     ax_Q.set_title(f'Agent {i+1}: Q')
+        #     ax_Q.set_xlabel('State Dim')
+        #     ax_Q.set_ylabel('State Dim')
+        #     plt.colorbar(im_Q, ax=ax_Q)
+
+        #     # Plot l vector (bar plot)
+        #     ax_l = axes[i, 1]
+        #     ax_l.bar(range(x_dim), l_i)
+        #     ax_l.set_title(f'Agent {i+1}: l')
+        #     ax_l.set_xlabel('State Dim')
+        #     ax_l.set_ylabel('Value')
+        #     ax_l.grid(True, alpha=0.3)
+
+        #     # Plot R matrix (heatmap)
+        #     ax_R = axes[i, 2]
+        #     im_R = ax_R.imshow(R_ii, cmap='viridis', interpolation='nearest')
+        #     ax_R.set_title(f'Agent {i+1}: R')
+        #     ax_R.set_xlabel('Control Dim')
+        #     ax_R.set_ylabel('Control Dim')
+        #     plt.colorbar(im_R, ax=ax_R)
+        
+        # # Adjust layout and save
+        # plt.tight_layout(rect=[0, 0, 1, 0.95])
+        # # plt.savefig(os.path.join(output_dir, f'cost_matrices_iter_{t}.png'))
+        # # plt.close(fig)
+        # plt.show()
         
         step_size = 1.0
         done = False
@@ -436,38 +613,38 @@ def solve_iLQGame(sim_param:SimulationParams, nl_game:NonlinearGame, x_init:torc
 
 
 
-# def cost_func_p0(state, action):
+def cost_func_p0(state, action):
     
     
-#     pos_p0 = state[0:2]  # x0, y0
-#     pos_p1 = state[4:6]  # x1, y1
-#     act_p0 = action[0:2]  # ax0, ay0
+    pos_p0 = state[0:2]  # x0, y0
+    pos_p1 = state[4:6]  # x1, y1
+    act_p0 = action[0:2]  # ax0, ay0
 
-#     goal_p0 = torch.tensor([1.0, 1.0], device=state.device, dtype=state.dtype)
+    goal_p0 = torch.tensor([1.0, 1.0], device=state.device, dtype=state.dtype)
 
-#     dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
-#     dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
-#     eps = 1e-6
-#     action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
+    dist_to_goal = torch.linalg.norm(pos_p0 - goal_p0)
+    dist_to_other = torch.linalg.norm(pos_p0 - pos_p1)
+    eps = 1e-6
+    action_cost = torch.sqrt(torch.sum(act_p0 ** 2) + eps)
 
 
-#     cost = 0.5 * dist_to_goal + 2.0 / (dist_to_other + 1e-6) + action_cost
-#     return cost
+    cost = 0.5 * dist_to_goal + 2.0 / (dist_to_other + 1e-6) + action_cost
+    return cost
 
-# def cost_func_p1(state, action):
-#     pos_p0 = state[0:2]  # x0, y0
-#     pos_p1 = state[4:6]  # x1, y1
-#     act_p1 = action[2:4]  # ax1, ay1
+def cost_func_p1(state, action):
+    pos_p0 = state[0:2]  # x0, y0
+    pos_p1 = state[4:6]  # x1, y1
+    act_p1 = action[2:4]  # ax1, ay1
 
-#     goal_p1 = torch.tensor([2.0, 2.0], device=state.device, dtype=state.dtype)
+    goal_p1 = torch.tensor([2.0, 2.0], device=state.device, dtype=state.dtype)
 
-#     dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
-#     dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
-#     eps = 1e-6
-#     action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
+    dist_to_goal = torch.linalg.norm(pos_p1 - goal_p1)
+    dist_to_other = torch.linalg.norm(pos_p1 - pos_p0)
+    eps = 1e-6
+    action_cost = torch.sqrt(torch.sum(act_p1 ** 2) + eps)
 
-#     cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
-#     return cost
+    cost = dist_to_goal + 1.0 / (dist_to_other + 1e-6) + action_cost
+    return cost
 
 def dyn(state, action):
     delta_time = 0.5
@@ -488,21 +665,21 @@ def dyn(state, action):
     return torch.cat([new_pos0, new_vel0, new_pos1, new_vel1])
 
 
-# if __name__ == "__main__":
-#     x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
+if __name__ == "__main__":
+    x_init = torch.Tensor([0.1,0.1,0.1,0.1, 1,1,0.5,0.5])
 
-#     x_dims = [4,4]
-#     x_dim = 8
+    x_dims = [4,4]
+    x_dim = 8
 
-#     u_dims = [2,2]
-#     u_dim = 4
+    u_dims = [2,2]
+    u_dim = 4
 
-#     cost_funcs = [cost_func_p0, cost_func_p1]
-#     dynamics_func = dyn
+    cost_funcs = [cost_func_p0, cost_func_p1]
+    dynamics_func = dyn
 
-#     sim_param = SimulationParams(1,-1,20)
-#     nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
+    sim_param = SimulationParams(1,-1,20)
+    nl_game = NonlinearGame(dyn, cost_funcs, x_dims, x_dim, u_dims, u_dim, 2)
 
-#     S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
+    S, x, u = generate_simulations(sim_param, nl_game, x_init, 2, 2)
 
-#     print(x)
+    print(x)
