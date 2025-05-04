@@ -187,7 +187,7 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
     # output: for each num_trajectories, for each cost function, average value of cost_function
 
     steps=20
-    horizon=-1
+    horizon=3
     plan_steps=10
 
     avg_dem_feature_counts, feature_counts = get_feature_counts(x_trajectories, u_trajectories, cost_functions)
@@ -220,7 +220,7 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
                                                        nl_game, 
                                                        x_init, 
                                                        x_ref,
-                                                       10, 
+                                                       plan_steps, 
                                                        2)
         x_trajectories_sim = results.x_trajs
         u_trajectories_sim = results.u_trajs
@@ -233,7 +233,7 @@ def ma_irl(dynamics, cost_functions, x_trajectories, u_trajectories, num_max_ite
         for i in range(num_agents):
             current_cost_funcs.append(lambda state, action, i=i: sum(w[j] * cost_functions[j](state, action) for j in agent_to_functions[i]))
 
-        if num_iter in [1, 3, 7, 10, 20, 35, 50]:
+        if num_iter in [1, 3, 5, 7, 10]:
             print("x_trajectories_sim= ", x_trajectories_sim)
             plot_trajectory(x_trajectories_sim[-1], num_iter)
         
@@ -305,14 +305,14 @@ def cost_func6(state, action):
 
 
 def true_cost_p0(state, action):
-    return 1.0 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.8 * cost_func3(state, action)
+    return 2.5 * cost_func1(state, action) + 1.1 * cost_func2(state, action) + 0.1 * cost_func3(state, action)
     # return 1.0 * cost_func1(state, action) + 0.8 * cost_func3(state, action)
 def true_cost_p1(state, action):
-    return 1.0 * cost_func4(state, action) + 0.7 * cost_func5(state, action) + 0.4 * cost_func6(state, action)
+    return 2.5 * cost_func4(state, action) + 1.1 * cost_func5(state, action) + 0.1 * cost_func6(state, action)
     # return 1.0 * cost_func4(state, action) + 0.4 * cost_func6(state, action)
 
 
-def plot_trajectory(x_trajectory):
+def plot_trajectory(x_trajectory, it=-1):
     agent1_pos = x_trajectory[:, 0:2]  # (T, 2)
     agent2_pos = x_trajectory[:, 4:6]  # (T, 2)
     T = agent1_pos.shape[0]
@@ -356,6 +356,12 @@ def plot_trajectory(x_trajectory):
             )]
         ),
         frames=frames
+    )
+
+    fig.update_layout(
+        title={
+            'text': f"iteration: {it}",
+        }
     )
 
     # fig.write_html(f"trajectory_animation_{time.now()}.html")
