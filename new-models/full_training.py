@@ -54,11 +54,11 @@ class DynamicsNet(nn.Module):
 def training_step(trajectory_batch, cost_net, dynamics_net, policy_net, cost_embeddings, entropy_weight, ece_weight, accel_weight, embed_weight):
     """
     trajectory_batch: dict of tensors with keys:
-        - states: (B, T, N, 8)
-        - next_states: (B, T, N, 8)
+        - states: (B, T, N, 4)
+        - next_states: (B, T, N, 4)
     """
-    states = trajectory_batch['states']      # (B, T, N, 8)
-    next_states = trajectory_batch['next_states']  # (B, T, N, 8)
+    states = trajectory_batch['states']      # (B, T, N, 4)
+    next_states = trajectory_batch['next_states']  # (B, T, N, 4)
     actions = trajectory_batch['actions']      # (B, T, N, 4)
 
     B, T, N, _ = states.shape
@@ -74,13 +74,12 @@ def training_step(trajectory_batch, cost_net, dynamics_net, policy_net, cost_emb
 
         predicted_actions = []
         for i in range(N):
-            s_i_t = s_t[:, i]                  # (B, 8)
+            s_i_t = s_t[:, i]                  # (B, 4)
             c_i = cost_embeddings[i].unsqueeze(0).expand(B, -1)  # (B, k)
 
             a_i_t = policy_net(s_i_t, c_i)     # (B, m)
             predicted_actions.append(a_i_t)
 
-        actions = torch.stack(predicted_actions, dim=1)  # (B, N, m)
         actions_flat = actions.view(B, -1)               # (B, N*m)
 
         s_t_flat = s_t.view(B, -1)
@@ -90,8 +89,8 @@ def training_step(trajectory_batch, cost_net, dynamics_net, policy_net, cost_emb
         total_dyn_loss += dyn_loss
 
         for i in range(N):
-            s_i_t = s_t[:, i]         # (B, 8)
-            a_i_t = actions[:, i]     # (B, m)
+            s_i_t = s_t[:, i]         # (B, 4)
+            a_i_t = predicted_actions[:, i]     # (B, m)
             c_i = cost_embeddings[i].unsqueeze(0).expand(B, -1)  # (B, k)
 
             s_i_t.requires_grad_(True)
@@ -189,20 +188,22 @@ def train_with_grid_search(filename, cost_embed_dims=[8, 16, 32, 64], num_epochs
 
                 # Select single simulation and transpose
                 batch = data[:, :, sim_index]  # Shape: (20, 61)
-                batch = data.T  # Shape: (61, 20)
+                batch = batch.T  # Shape: (61, 20)
 
                 # Extract states, refs, and actions
-                states = torch.tensor(batch[:, 0:8], dtype=torch.float32)  # (61, 8)
-                # refs = torch.tensor(batch[:, 8:16], dtype=torch.float32)   # (61, 8)
+                states1 = torch.tensor(batch[:, 0:4], dtype=torch.float32)  # (61, 4)
+                states2 = torch.tensor(batch[:, 4:8], dtype=torch.float32)  # (61, 4)
+                # refs = torch.tensor(batch[:, 8:16], dtype=torch.float32)   # (61, 4)
                 actions = torch.tensor(batch[:, 16:20], dtype=torch.float32)  # (61, 4)
  
-                states = states[np.newaxis, :]
-                batch = {'states': states[:, :, :, :-1],
-                         'next_states': states[:, :, :, 1:],
+                states = torch.stack((states1, states2), axis=1)
+                states = torch.unsqueeze(states, 0)
+                batchd = {'states': states[:, :-1, :, :],
+                         'next_states': states[:, 1:, :, :],
                          'actions': actions}
 
                 loss = training_step(
-                    batch, cost_net, dynamics_net, policy_net, cost_embeddings,
+                    batchd, cost_net, dynamics_net, policy_net, cost_embeddings,
                     entropy_weight=0.1, ece_weight=1.0, accel_weight=0.1, embed_weight=0.1
                 )
                 optimizer.zero_grad()
