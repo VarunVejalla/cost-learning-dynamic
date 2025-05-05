@@ -480,12 +480,13 @@ def solve_iLQGame(sim_param: SimulationParams, nl_game: NonlinearGame, x_init: t
 
     tol = 1.0
     err = float('inf')
-    max_itr = 10
+    max_itr = 20
     itr = 0
     x_trajectory_prev = x_trajectory.clone()
     u_trajectory_prev = u_trajectory.clone()
     
     while err > tol and itr < max_itr:
+        print(err, itr)
         Dynamics = {
             "A": torch.empty((plan_steps, x_dim, x_dim)),
             "B": [torch.empty((plan_steps, x_dim, u_dims[i])) for i in range(num_player)],
