@@ -5,29 +5,30 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 
+d = 4  # state dimension per agent
 m = 2  # Action dimension per agent
 N = 2  # Number of agents
 
 class CostNet(nn.Module):
-    def __init__(self, state_dim=4*N + 4, action_dim=m, cost_embed_dim=16):
+    def __init__(self, state_dim=d+N*d, action_dim=m, cost_dim=16):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim + action_dim + cost_embed_dim, 128),
+            nn.Linear(state_dim + action_dim + cost_dim, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 1)
         )
 
-    def forward(self, state, action, cost_embed):
-        x = torch.cat([state, action, cost_embed], dim=-1)
+    def forward(self, state, full_state, action, cost_embed):
+        x = torch.cat([state, full_state, action, cost_embed], dim=-1)
         return self.net(x)  # (batch_size, 1)
 
 class PolicyNet(nn.Module):
-    def __init__(self, state_dim=4*N, cost_dim=16, action_dim=m*N):
+    def __init__(self, state_dim=d*N, cost_dim=16, action_dim=m*N):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim + cost_dim, 64),
+            nn.Linear(state_dim + N * cost_dim, 64),
             nn.ReLU(),
             nn.Linear(64, 64),
             nn.ReLU(),
@@ -39,7 +40,7 @@ class PolicyNet(nn.Module):
         return self.net(x)  # (batch_size, action_dim)
 
 class DynamicsNet(nn.Module):
-    def __init__(self, state_dim=4, action_dim=m):
+    def __init__(self, state_dim=d, action_dim=m):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(state_dim + action_dim, 256),
@@ -78,7 +79,7 @@ def preprocess_data(data):
     }
     return batchd
 
-def training_step(trajectory_batch, cost_nets, dynamics_net, policy_net, cost_embeddings, entropy_weight, ece_weight, accel_weight, embed_weight):
+def training_step(trajectory_batch, cost_net, dynamics_net, policy_net, cost_embeddings, entropy_weight, ece_weight, accel_weight, embed_weight):
     """
     Perform a training step for multi-agent IRL.
 
@@ -94,10 +95,11 @@ def training_step(trajectory_batch, cost_nets, dynamics_net, policy_net, cost_em
     Returns:
         Total loss.
     """
-    states = trajectory_batch['states']  # (B, T, N, 4)
-    next_states = trajectory_batch['next_states']  # (B, T, N, 4)
-    # actions = trajectory_batch['actions']  # (B, T, N, 2)
+    states = trajectory_batch['states']  # (B, T, N, d)
+    next_states = trajectory_batch['next_states']  # (B, T, N, d)
+    # actions = trajectory_batch['actions']  # (B, T, N, m)
 
+    print(states.shape)
     B, T, N, _ = states.shape
     device = states.device
 
@@ -106,21 +108,25 @@ def training_step(trajectory_batch, cost_nets, dynamics_net, policy_net, cost_em
     total_accel_loss = 0.
 
     for t in range(T):
-        s_t = states[:, t]  # (B, N, 4)
-        s_tp1 = next_states[:, t]  # (B, N, 4)
+        s_t = states[:, t]  # (B, N, d)
+        s_tp1 = next_states[:, t]  # (B, N, d)
 
         # Flatten state for dynamics and cost networks
-        s_t_flat = s_t.view(B, -1)  # (B, N*4)
+        s_t_flat = s_t.view(B, -1)  # (B, N*d)
 
         # Predict actions for all agents in one pass
         predicted_actions = policy_net(s_t_flat, cost_embeddings)  # (B, N*m)
         predicted_actions = predicted_actions.view(B, N, m)  # (B, N, m)
 
         # Dynamics loss using predicted actions
-        actions_flat = predicted_actions.view(B, -1)  # (B, N*2)
-        s_pred_tp1 = dynamics_net(s_t_flat, actions_flat)  # (B, N*4)
-        s_true_tp1 = s_tp1.view(B, -1)  # (B, N*4)
-        dyn_loss = F.mse_loss(s_pred_tp1, s_true_tp1)
+        # actions_flat = predicted_actions.view(B, -1)  # (B, N*m)
+        
+        dyn_loss = 0
+        for i in range(N):
+            s_pred = dynamics_net(s_t[:, i], predicted_actions[:, i])  # (B, N*4)
+            s_true = s_tp1[:, i]  # (B, N*4)
+            dyn_loss += F.mse_loss(s_pred, s_true)
+        
         total_dyn_loss += dyn_loss
 
         # ECE loss for each agent
@@ -129,12 +135,12 @@ def training_step(trajectory_batch, cost_nets, dynamics_net, policy_net, cost_em
             c_i = cost_embeddings[i].unsqueeze(0).expand(B, -1)  # (B, k)
 
             # Ensure gradients
-            s_t_flat = torch.cat()
-            s_t_flat.requires_grad_(True)
+            # s_t_flat = torch.cat()
+            # s_t_flat.requires_grad_(True)
             a_i_t.requires_grad_(True)
             c_i.requires_grad_(True)
 
-            cost = cost_nets(s_t_flat, a_i_t, c_i).squeeze(-1)  # (B,)
+            cost = cost_net(s_t[:, i], s_t_flat, predicted_actions[:,i], c_i).squeeze(-1)  # (B,)
 
             # Compute gradient and Hessian diagonal for entropy term
             grad_a = torch.autograd.grad(cost.sum(), a_i_t, create_graph=True)[0]  # (B, 2)
@@ -167,7 +173,7 @@ def training_step(trajectory_batch, cost_nets, dynamics_net, policy_net, cost_em
 
     return total_loss
 
-def train_with_grid_search(filename, cost_embed_dims=[8, 16, 32, 64], num_epochs=100, batch_size=1):
+def train_with_grid_search(filename, cost_dims=[8, 16, 32, 64], num_epochs=100, batch_size=1):
     """
     Perform grid search over cost_embed_dim values, training models and plotting losses.
     """
@@ -189,13 +195,13 @@ def train_with_grid_search(filename, cost_embed_dims=[8, 16, 32, 64], num_epochs
       data = np.array(f.get("demo_data"))  # (20, 61, 500)
 
     # Grid search over cost_embed_dim
-    for k in cost_embed_dims:
+    for k in cost_dims:
         print(f"\nTraining with cost_embed_dim = {k}")
         
         # Initialize models
-        cost_net = CostNet(cost_embed_dim=k)
+        cost_net = CostNet(cost_dim=k)
         dynamics_net = DynamicsNet()
-        policy_net = PolicyNet(cost_dim=k, state_dim=4*N, action_dim=m)
+        policy_net = PolicyNet(cost_dim=k)
         cost_embeddings = nn.Parameter(torch.randn(N, k))
         
         optimizer = torch.optim.Adam(
@@ -271,4 +277,4 @@ def train_with_grid_search(filename, cost_embed_dims=[8, 16, 32, 64], num_epochs
 # Run grid search
 if __name__ == "__main__":
     filename = "MultiAgentIRL-main/cioc_data/twoplayer.h5"
-    best_k, results = train_with_grid_search(filename, cost_embed_dims=[8, 16, 32, 64], num_epochs=100, batch_size=1)
+    best_k, results = train_with_grid_search(filename, cost_dims=[8, 16, 32, 64], num_epochs=100, batch_size=1)
