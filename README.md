@@ -1,3 +1,21 @@
+# Setup
+
+# we want to, given a dataset of trajectories, learn how to predict the trajectories, given the trajectories up to a certain point in time
+
+# overall:
+# input: state. Output: action taken by each agent at this state
+
+
+# input: state, action taken, new states(?). Output: cost vector
+# input: state, cost vector --> cost
+# input: states, cost --> action
+
+# input: current states and action taken by each agent. Output: new states (dynamics)
+
+# input: cost vector
+# input: states 
+
+
 # MA_IRL
 
 
